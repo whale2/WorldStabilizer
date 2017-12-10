@@ -54,7 +54,7 @@ namespace WorldStabilizer
 			
 		public void onVesselGoOffRails(Vessel v) {
 
-			if (v.situation != Vessel.Situations.LANDED)
+			if (v.situation != Vessel.Situations.LANDED && v.situation != Vessel.Situations.PRELAUNCH)
 				return;
 
 			printDebug("off rails: " + v.name + "; fixedDelta = " + Time.fixedDeltaTime + "; delta = " + Time.deltaTime);
@@ -72,7 +72,7 @@ namespace WorldStabilizer
 				return;
 
 			foreach (Vessel v in FlightGlobals.VesselsLoaded) {
-				if (vessel_timer.ContainsKey (v.id)) {
+				if (vessel_timer.ContainsKey (v.id) && vessel_timer[v.id] > 0) {
 					stabilize (v);
 				}
 				antiSlide (v);
@@ -80,19 +80,33 @@ namespace WorldStabilizer
 		}
 
 		private void moveUp(Vessel v) {
-			float alt = GetRaycastAltitude (v, bounds[v.id]);
-			printDebug ("Moving up: " + v.name + "; alt = " + alt.ToString());
-			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
-			v.Translate (up);
+			float alt = GetRaycastAltitude (v, bounds[v.id].bottomPoint,  (1<<15)|(1<<0)); //mask: ground and parts
+			float alt2 = GetRaycastAltitude(v, bounds[v.id].topPoint, 1<<15); // mask: ground only
+			if (alt <= 0) {
 
-			printDebug ("Moved: " + v.name + "; alt = " + GetRaycastAltitude(v, bounds[v.id]).ToString());
+				float upMovement = bounds [v.id].bottomLength + bounds [v.id].topLength - alt2;
+				if (upMovement > 0) {
+					printDebug ("Moving up: " + v.name + " by " + upMovement + "; alt = " + alt.ToString () + "; alt from top = " + alt2.ToString ());
+					Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
+					v.Translate (up * upMovement);
+
+					printDebug ("Moved: " + v.name + "; alt = " + GetRaycastAltitude (v, bounds [v.id].bottomPoint, (1 << 15) | (1 << 0)).ToString () +
+					"; alt from top = " + GetRaycastAltitude (v, bounds [v.id].topPoint, 1 << 15).ToString ());
+				} else {
+					printDebug ("upMovement is " + upMovement + "; not moving up");
+				}
+			} else {
+				printDebug ("altitude is " + alt + "; not moving up because above the ground");
+			}
 		}
 
 		private void moveDown(Vessel v) {
 
-			bounds [v.id].findLowestPoint ();
-			float alt = GetRaycastAltitude (v, bounds[v.id]);
-			printDebug ("Moving down: " + v.name + "; alt = " + alt.ToString() + "; timer = " + vessel_timer[v.id] + "; radar alt = " + v.radarAltitude);
+			bounds [v.id].findBoundPoints ();
+			float alt = GetRaycastAltitude (v, bounds[v.id].bottomPoint,  (1<<15)|(1<<0));
+			float alt3 = GetRaycastAltitude(v, bounds[v.id].topPoint, 1<<15);
+			printDebug ("Moving down: " + v.name + "; alt = " + alt.ToString() + "; timer = " + vessel_timer[v.id] + "; radar alt = " + v.radarAltitude +
+				"; alt from top = " + alt3.ToString());
 			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
 			v.Translate (alt * -up * 0.97f);
 		}
@@ -111,7 +125,8 @@ namespace WorldStabilizer
 			v.angularMomentum = Vector3.zero;
 			v.angularVelocity = Vector3.zero;
 
-			printDebug ("Stabilizing; v = " + v.name + "; radar alt = " + v.radarAltitude);
+			if (vessel_timer [v.id] % 10 == 0)
+				printDebug ("Stabilizing; v = " + v.name + "; radar alt = " + v.radarAltitude + "; timer = " + vessel_timer [v.id]);
 			vessel_timer [v.id]--;
 			if (vessel_timer [v.id] == 0) {
 				count--;
@@ -192,45 +207,55 @@ namespace WorldStabilizer
 
 			public Vessel vessel;
 			public float bottomLength;
+			public float topLength;
 
 			public Vector3 localBottomPoint;
-			public Vector3 bottomPoint
-			{
-				get
-				{
+			public Vector3 bottomPoint {
+				get {
 					return vessel.transform.TransformPoint(localBottomPoint);
 				}
 			}     
+
+			public Vector3 localTopPoint;
+			public Vector3 topPoint {
+				get {
+					return vessel.transform.TransformPoint (localTopPoint);
+				}
+			}
+
 			public Vector3 up;
 
 			public VesselBounds(Vessel v)
 			{
 				vessel = v;
 				bottomLength = 0;
+				topLength = 0;
 				localBottomPoint = Vector3.zero;
+				localTopPoint = Vector3.zero;
 				up = Vector3.zero;
-				findLowestPoint();
-				
+				findBoundPoints();
 			}
 
-
-			public void findLowestPoint() {
+			public void findBoundPoints() {
 
 				Vector3 lowestPoint = Vector3.zero;
+				Vector3 highestPoint = Vector3.zero;
 				//float maxSqrDist = 0.0f;
-				Part furthestPart = new Part();
+				Part downwardFurthestPart = new Part();
+				Part upwardFurthestPart = new Part ();
 				up = (vessel.CoM-vessel.mainBody.transform.position).normalized;
 				Vector3 downPoint = vessel.CoM - (2000 * up);
+				Vector3 upPoint = vessel.CoM + (2000 * up);
 				Vector3 closestVert = vessel.CoM;
+				Vector3 farthestVert = vessel.CoM;
 				float closestSqrDist = Mathf.Infinity;
+				float farthestSqrDist = Mathf.Infinity;
 
 				foreach (Part p in vessel.parts) {
-					/*float sqrDist = Vector3.ProjectOnPlane((p.transform.position-vessel.CoM), up).sqrMagnitude;
-					if(sqrDist > maxSqrDist)
-					{
-						maxSqrDist = sqrDist;
-						furthestPart = p;
-					}*/
+
+					if (p.Modules.Contains ("KASModuleHarpoon"))
+						continue;
+
 					foreach (MeshFilter mf in p.GetComponentsInChildren<MeshFilter>()) {
 						Mesh mesh = mf.mesh;
 						foreach (Vector3 vert in mesh.vertices) {
@@ -240,17 +265,28 @@ namespace WorldStabilizer
 							if (bSqrDist < closestSqrDist) {
 								closestSqrDist = bSqrDist;
 								closestVert = worldVertPoint;
-								furthestPart = p;
+								downwardFurthestPart = p;
+							}
+							bSqrDist = (upPoint - worldVertPoint).sqrMagnitude;
+							if (bSqrDist < farthestSqrDist) {
+								farthestSqrDist = bSqrDist;
+								farthestVert = worldVertPoint;
+								upwardFurthestPart = p;
 							}
 						}
 					}
 
 				}
-				printDebug ("vessel = " + vessel.name + "; furthest part = " + furthestPart.name);
-				bottomLength = Vector3.Project(closestVert-vessel.CoM, up).magnitude;
-				localBottomPoint = vessel.transform.InverseTransformPoint(closestVert);
-			}
+				printDebug ("vessel = " + vessel.name + "; furthest downward part = " + downwardFurthestPart.name +
+					"; upward part = " + upwardFurthestPart.name);
 
+				bottomLength = Vector3.Project(closestVert - vessel.CoM, up).magnitude;
+				localBottomPoint = vessel.transform.InverseTransformPoint(closestVert);
+				topLength = Vector3.Project (farthestVert - vessel.CoM, up).magnitude;
+				localTopPoint = vessel.transform.InverseTransformPoint (farthestVert);
+				printDebug ("vessel = " + vessel.name + "; bottomLength = " + bottomLength + "; bottomPoint = " +
+					bottomPoint + "; topLength = " + topLength + "; topPoint = " + topPoint);
+			}
 		}
 
 		void antiSlide(Vessel v) {
@@ -262,13 +298,13 @@ namespace WorldStabilizer
 			}
 		}
 
-		private float GetRaycastAltitude(Vessel v, VesselBounds vbounds) 
+		private float GetRaycastAltitude(Vessel v, Vector3 originPoint, int layerMask) 
 		{
 			RaycastHit hit;
 			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
-			if(Physics.Raycast(vbounds.bottomPoint, -up, out hit, (float)v.altitude, (1<<15)|(1<<0)))
+			if(Physics.Raycast(originPoint, -up, out hit, v.vesselRanges.landed.unload, layerMask))
 			{
-				return Vector3.Project(hit.point - vbounds.bottomPoint, up).magnitude;
+				return Vector3.Project(hit.point - originPoint, up).magnitude;
 			}
 			else
 			{
