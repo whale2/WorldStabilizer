@@ -26,6 +26,7 @@ namespace WorldStabilizer
 		}
 
 		public void Start() {
+			printDebug("Start");
 			vessel_timer = new Dictionary<Guid, int> ();
 			//renderer = new Dictionary<Guid, LineRenderer> ();
 			bounds = new Dictionary<Guid, VesselBounds> ();
@@ -34,6 +35,13 @@ namespace WorldStabilizer
 			GameEvents.onVesselCreate.Add(onVesselCreate);
 			GameEvents.onNewVesselCreated.Add (onNewVesselCreated);
 			stabilizationTimer = (int)(stabilizationFactor / Time.fixedDeltaTime);  // If delta = 0.01, we will keep vessels 300 frames
+		}
+
+		public void OnDestroy() {
+			printDebug("OnDestroy");
+			GameEvents.onVesselGoOffRails.Remove (onVesselGoOffRails);
+			GameEvents.onVesselCreate.Remove(onVesselCreate);
+			GameEvents.onNewVesselCreated.Remove (onNewVesselCreated);
 		}
 
 		public void onVesselCreate(Vessel v) {
@@ -45,6 +53,10 @@ namespace WorldStabilizer
 		}
 			
 		public void onVesselGoOffRails(Vessel v) {
+
+			if (v.situation != Vessel.Situations.LANDED)
+				return;
+
 			printDebug("off rails: " + v.name + "; fixedDelta = " + Time.fixedDeltaTime + "; delta = " + Time.deltaTime);
 			vessel_timer[v.id] = stabilizationTimer;
 			printDebug("Timer = " + vessel_timer[v.id]);
@@ -106,7 +118,7 @@ namespace WorldStabilizer
 				printDebug ("Stopping stabilizing " + v.name);
 				tryAttachAnchor (v);
 				if (count == 0)
-					ScreenMessages.PostScreenMessage ("World was stabilized");
+					ScreenMessages.PostScreenMessage ("World has been stabilized");
 			}
 
 		}
