@@ -18,6 +18,9 @@ namespace WorldStabilizer
 		private float stabilizationFactor = 3.0f;
 		private int stabilizationTimer;
 
+		private const int rayCastMask = (1 << 28) | (1 << 15) | (1 << 0);
+		private const int rayCastTopMask = 1 << 15;
+
 		public WorldStabilizer ()
 		{
 		}
@@ -34,6 +37,7 @@ namespace WorldStabilizer
 			anchors = new Dictionary<Guid, List<PartModule>> ();
 			lastAlt = new Dictionary<Guid, float> ();
 			GameEvents.onVesselGoOffRails.Add (onVesselGoOffRails);
+			GameEvents.onVesselGoOnRails.Add (onVesselGoOnRails);
 			//GameEvents.onVesselCreate.Add(onVesselCreate);
 			stabilizationTimer = (int)(stabilizationFactor / Time.fixedDeltaTime);  // If delta = 0.01, we will keep vessels 300 frames
 		}
@@ -41,11 +45,19 @@ namespace WorldStabilizer
 		public void OnDestroy() {
 			printDebug("OnDestroy");
 			GameEvents.onVesselGoOffRails.Remove (onVesselGoOffRails);
+			GameEvents.onVesselGoOnRails.Remove (onVesselGoOnRails);
 			GameEvents.onVesselCreate.Remove(onVesselCreate);
 		}
 
 		public void onVesselCreate(Vessel v) {
 			printDebug ("vessel = " + v.name);
+		}
+
+		public void onVesselGoOnRails(Vessel v) {
+			if (vessel_timer.ContainsKey (v.id) && vessel_timer [v.id] > 0) {
+				vessel_timer [v.id] = 0;
+				count--;
+			}
 		}
 			
 		public void onVesselGoOffRails(Vessel v) {
@@ -53,10 +65,12 @@ namespace WorldStabilizer
 			if (v.situation != Vessel.Situations.LANDED && v.situation != Vessel.Situations.PRELAUNCH)
 				return;
 
+			printDebug("off rails: " + v.name + ": packed: " + v.packed + "; loaded: " + v.loaded + "; permGround: " + v.permanentGroundContact);
 			if (v.isEVA) // Kerbals are usually ok
 				return;
+			if (v.packed) // no physics, let's leave it alone
+				return;
 
-			printDebug("off rails: " + v.name + "; fixedDelta = " + Time.fixedDeltaTime + "; delta = " + Time.deltaTime);
 			vessel_timer[v.id] = stabilizationTimer;
 			printDebug("Timer = " + vessel_timer[v.id]);
 			bounds [v.id] = new VesselBounds (v);
@@ -79,19 +93,19 @@ namespace WorldStabilizer
 		}
 
 		private void moveUp(Vessel v) {
-			float alt = GetRaycastAltitude (v, bounds[v.id].bottomPoint,  (1<<28)|(1<<15)|(1<<0)); //mask: ground and parts
-			float alt2 = GetRaycastAltitude(v, bounds[v.id].topPoint, 1<<15); // mask: ground only
+			float alt = GetRaycastAltitude (v, bounds[v.id].bottomPoint, rayCastMask ); //mask: ground and parts
+			float alt2 = GetRaycastAltitude(v, bounds[v.id].topPoint, rayCastTopMask); // mask: ground only
 			//if (alt <= 0) {
 
 				float upMovement = bounds [v.id].bottomLength + bounds [v.id].topLength - alt2;
+				lastAlt [v.id] = GetRaycastAltitude (v, bounds [v.id].bottomPoint, rayCastMask);
 				if (upMovement > 0) {
-					printDebug ("Moving up: " + v.name + " by " + upMovement + "; alt = " + alt.ToString () + "; alt from top = " + alt2.ToString ());
+					printDebug ("Moving up: " + v.name + " by " + upMovement + "+10%; alt = " + alt.ToString () + "; alt from top = " + alt2.ToString ());
 					Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
 					v.Translate (up * upMovement * 1.1f);
-
-				lastAlt [v.id] = GetRaycastAltitude (v, bounds [v.id].bottomPoint, (1<<28)|(1 << 15)|(1 << 0)); // TODO: Put mask into constant 
+					lastAlt [v.id] = GetRaycastAltitude (v, bounds [v.id].bottomPoint, rayCastMask);
 					printDebug ("Moved: " + v.name + "; alt = " + lastAlt[v.id] +
-					"; alt from top = " + GetRaycastAltitude (v, bounds [v.id].topPoint, 1 << 15).ToString ());
+					"; alt from top = " + GetRaycastAltitude (v, bounds [v.id].topPoint, rayCastTopMask).ToString () + "; id=" + v.id);
 				} else {
 					printDebug ("upMovement is " + upMovement + "; not moving up");
 				}
@@ -102,9 +116,12 @@ namespace WorldStabilizer
 
 		private void moveDown(Vessel v) {
 
+
+			printDebug ("Recalculating bounds for vessel " + v.name + "; id=" + v.id);
 			bounds [v.id].findBoundPoints ();
-			float alt = GetRaycastAltitude (v, bounds[v.id].bottomPoint,  (1<<28)|(1<<15)|(1<<0));
-			float alt3 = GetRaycastAltitude(v, bounds[v.id].topPoint, 1<<15);
+			float alt = GetRaycastAltitude (v, bounds[v.id].bottomPoint,  rayCastMask);
+			float alt3 = GetRaycastAltitude(v, bounds[v.id].topPoint, rayCastTopMask);
+			printDebug (v.name + ": alt bottom = " + alt + "; alt top = " + alt3);
 
 			// Somtimes we hit some strange things with raycast, or don't hit actual terrain and height from 
 			// bottom point is greater than radar altitude, i.e. height from CoM. In this case, use raycast from topmost
@@ -119,7 +136,7 @@ namespace WorldStabilizer
 				return;
 			}
 			lastAlt [v.id] = alt;
-			printDebug ("Moving down: " + v.name + "by " + downMovement + "; alt = " + alt.ToString() + "; timer = " + vessel_timer[v.id] + "; radar alt = " + v.radarAltitude +
+			printDebug ("Moving down: " + v.name + " by " + downMovement + "-10%; alt = " + alt.ToString() + "; timer = " + vessel_timer[v.id] + "; radar alt = " + v.radarAltitude +
 				"; alt from top = " + alt3.ToString());
 			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
 			v.Translate (downMovement * -up * 0.9f);
@@ -272,6 +289,11 @@ namespace WorldStabilizer
 
 					foreach (MeshFilter mf in p.GetComponentsInChildren<MeshFilter>()) {
 						Mesh mesh = mf.mesh;
+						Collider[] cdr = mf.GetComponentsInChildren<Collider> ();
+
+						if (cdr.Length == 0 && !p.Modules.Contains ("ModuleWheelBase")) // For some reasons wheels don't have colliders at this time
+							continue;
+						
 						foreach (Vector3 vert in mesh.vertices) {
 							//bottom check
 							Vector3 worldVertPoint = mf.transform.TransformPoint (vert);
@@ -291,15 +313,21 @@ namespace WorldStabilizer
 					}
 
 				}
-				printDebug ("vessel = " + vessel.name + "; furthest downward part = " + downwardFurthestPart.name +
-					"; upward part = " + upwardFurthestPart.name);
 
 				bottomLength = Vector3.Project(closestVert - vessel.CoM, up).magnitude;
 				localBottomPoint = vessel.transform.InverseTransformPoint(closestVert);
 				topLength = Vector3.Project (farthestVert - vessel.CoM, up).magnitude;
 				localTopPoint = vessel.transform.InverseTransformPoint (farthestVert);
-				printDebug ("vessel = " + vessel.name + "; bottomLength = " + bottomLength + "; bottomPoint = " +
-					bottomPoint + "; topLength = " + topLength + "; topPoint = " + topPoint);
+				try {
+					printDebug ("vessel = " + vessel.name + "; furthest downward part = " + downwardFurthestPart.name +
+						"; upward part = " + upwardFurthestPart.name);
+					
+					printDebug ("vessel = " + vessel.name + "; bottomLength = " + bottomLength + "; bottomPoint = " +
+						bottomPoint + "; topLength = " + topLength + "; topPoint = " + topPoint);
+				}
+				catch(Exception e) {
+					printDebug ("Can't print vessel stats: " + e.ToString());
+				}
 			}
 		}
 
