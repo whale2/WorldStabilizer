@@ -13,6 +13,7 @@ namespace WorldStabilizer
 		private Dictionary<Guid, LineRenderer> renderer;
 		private Dictionary<Guid, VesselBounds> bounds;
 		private Dictionary<Guid, List<PartModule>> anchors;
+		private Dictionary<Guid, float> lastAlt;
 
 		private float stabilizationFactor = 3.0f;
 		private int stabilizationTimer;
@@ -31,6 +32,7 @@ namespace WorldStabilizer
 			//renderer = new Dictionary<Guid, LineRenderer> ();
 			bounds = new Dictionary<Guid, VesselBounds> ();
 			anchors = new Dictionary<Guid, List<PartModule>> ();
+			lastAlt = new Dictionary<Guid, float> ();
 			GameEvents.onVesselGoOffRails.Add (onVesselGoOffRails);
 			//GameEvents.onVesselCreate.Add(onVesselCreate);
 			stabilizationTimer = (int)(stabilizationFactor / Time.fixedDeltaTime);  // If delta = 0.01, we will keep vessels 300 frames
@@ -87,7 +89,8 @@ namespace WorldStabilizer
 					Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
 					v.Translate (up * upMovement * 1.1f);
 
-					printDebug ("Moved: " + v.name + "; alt = " + GetRaycastAltitude (v, bounds [v.id].bottomPoint, (1 << 15) | (1 << 0)).ToString () +
+				lastAlt [v.id] = GetRaycastAltitude (v, bounds [v.id].bottomPoint, (1<<28)|(1 << 15)|(1 << 0)); // TODO: Put mask into constant 
+					printDebug ("Moved: " + v.name + "; alt = " + lastAlt[v.id] +
 					"; alt from top = " + GetRaycastAltitude (v, bounds [v.id].topPoint, 1 << 15).ToString ());
 				} else {
 					printDebug ("upMovement is " + upMovement + "; not moving up");
@@ -102,11 +105,21 @@ namespace WorldStabilizer
 			bounds [v.id].findBoundPoints ();
 			float alt = GetRaycastAltitude (v, bounds[v.id].bottomPoint,  (1<<28)|(1<<15)|(1<<0));
 			float alt3 = GetRaycastAltitude(v, bounds[v.id].topPoint, 1<<15);
+
 			// Somtimes we hit some strange things with raycast, or don't hit actual terrain and height from 
 			// bottom point is greater than radar altitude, i.e. height from CoM. In this case, use raycast from topmost
 			// point.
 			float downMovement = alt < v.radarAltitude ? alt : bounds [v.id].bottomLength + bounds [v.id].topLength - alt3;
-			printDebug ("Moving down: " + v.name + "; alt = " + alt.ToString() + "; timer = " + vessel_timer[v.id] + "; radar alt = " + v.radarAltitude +
+			if (downMovement < 0.05f) {
+				printDebug ("downmovement for " + v.name + " is below threshold; leaving as is: " + downMovement);
+				return;
+			}
+			if (downMovement > lastAlt [v.id]) {
+				printDebug ("downmovement for " + v.name + " is more than last altitude; leaving as is: " + downMovement);
+				return;
+			}
+			lastAlt [v.id] = alt;
+			printDebug ("Moving down: " + v.name + "by " + downMovement + "; alt = " + alt.ToString() + "; timer = " + vessel_timer[v.id] + "; radar alt = " + v.radarAltitude +
 				"; alt from top = " + alt3.ToString());
 			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
 			v.Translate (downMovement * -up * 0.9f);
