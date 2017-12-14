@@ -57,6 +57,7 @@ namespace WorldStabilizer
 			if (vessel_timer.ContainsKey (v.id) && vessel_timer [v.id] > 0) {
 				vessel_timer [v.id] = 0;
 				count--;
+				tryAttachAnchor (v);
 			}
 		}
 			
@@ -97,18 +98,20 @@ namespace WorldStabilizer
 			float alt2 = GetRaycastAltitude(v, bounds[v.id].topPoint, rayCastTopMask); // mask: ground only
 			//if (alt <= 0) {
 
-				float upMovement = bounds [v.id].bottomLength + bounds [v.id].topLength - alt2;
+			float upMovement = bounds [v.id].bottomLength + bounds [v.id].topLength - alt2;
+			lastAlt [v.id] = GetRaycastAltitude (v, bounds [v.id].bottomPoint, rayCastMask);
+			if (upMovement < 0.2f && alt > alt2) // raycast from bottom hit something, but not the true ground; raise higher
+				upMovement += 0.2f;				
+			if (upMovement > 0) {
+				printDebug ("Moving up: " + v.name + " by " + upMovement + "+10%; alt = " + alt.ToString () + "; alt from top = " + alt2.ToString ());
+				Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
+				v.Translate (up * upMovement * 1.1f);
 				lastAlt [v.id] = GetRaycastAltitude (v, bounds [v.id].bottomPoint, rayCastMask);
-				if (upMovement > 0) {
-					printDebug ("Moving up: " + v.name + " by " + upMovement + "+10%; alt = " + alt.ToString () + "; alt from top = " + alt2.ToString ());
-					Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
-					v.Translate (up * upMovement * 1.1f);
-					lastAlt [v.id] = GetRaycastAltitude (v, bounds [v.id].bottomPoint, rayCastMask);
-					printDebug ("Moved: " + v.name + "; alt = " + lastAlt[v.id] +
-					"; alt from top = " + GetRaycastAltitude (v, bounds [v.id].topPoint, rayCastTopMask).ToString () + "; id=" + v.id);
-				} else {
-					printDebug ("upMovement is " + upMovement + "; not moving up");
-				}
+				printDebug ("Moved: " + v.name + "; alt = " + lastAlt[v.id] +
+				"; alt from top = " + GetRaycastAltitude (v, bounds [v.id].topPoint, rayCastTopMask).ToString () + "; id=" + v.id);
+			} else {
+				printDebug ("upMovement is " + upMovement + "; not moving up");
+			}
 			//} else {
 			//	printDebug ("altitude is " + alt + "; alt2 = " + alt2 + "; not moving up because above the ground");
 			//}
@@ -123,7 +126,18 @@ namespace WorldStabilizer
 			float alt3 = GetRaycastAltitude(v, bounds[v.id].topPoint, rayCastTopMask);
 			printDebug (v.name + ": alt bottom = " + alt + "; alt top = " + alt3);
 
-			// Somtimes we hit some strange things with raycast, or don't hit actual terrain and height from 
+
+			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
+			// Lots of safeguarding goes here, as situations could be very tricky and we can't 
+			// determine altitude 100% correctly all the time
+
+			if (Math.Abs (alt3 - bounds [v.id].bottomLength - bounds [v.id].topLength - alt) > alt * 0.1f) {
+				printDebug ("alt from top and bottom are not consistent; moving 0.2 m up");
+				v.Translate (up * 0.2f);
+				return;
+			}
+
+			// Sometimes we hit some strange things with raycast, or don't hit actual terrain and height from 
 			// bottom point is greater than radar altitude, i.e. height from CoM. In this case, use raycast from topmost
 			// point.
 			float downMovement = alt < v.radarAltitude ? alt : bounds [v.id].bottomLength + bounds [v.id].topLength - alt3;
@@ -138,7 +152,6 @@ namespace WorldStabilizer
 			lastAlt [v.id] = alt;
 			printDebug ("Moving down: " + v.name + " by " + downMovement + "-10%; alt = " + alt.ToString() + "; timer = " + vessel_timer[v.id] + "; radar alt = " + v.radarAltitude +
 				"; alt from top = " + alt3.ToString());
-			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
 			v.Translate (downMovement * -up * 0.9f);
 		}
 
@@ -201,6 +214,7 @@ namespace WorldStabilizer
 			foreach (PartModule pm in anchors[v.id]) {
 				invokeAction (pm, "Attach anchor");
 			}
+			anchors.Remove (v.id);
 		}
 
 		private void invokeAction(PartModule pm, string actionName) {
