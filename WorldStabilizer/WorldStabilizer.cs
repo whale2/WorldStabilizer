@@ -43,8 +43,13 @@ namespace WorldStabilizer
 		private bool debug = true;
 		private bool drawPoints = true;
 
+		public static EventVoid onWorldStabilizationStartEvent;
+		public static EventVoid onWorldStabilizedEvent;
+
 		public WorldStabilizer ()
 		{
+			onWorldStabilizationStartEvent = new EventVoid ("onWorldStabilizationStart");
+			onWorldStabilizedEvent = new EventVoid ("onWorldStabilized");
 		}
 
 		public void Awake() {
@@ -89,7 +94,6 @@ namespace WorldStabilizer
 
 			if (v.situation == Vessel.Situations.LANDED ||
 			    (stabilizeInPrelaunch && v.situation == Vessel.Situations.PRELAUNCH)) {
-				
 
 				printDebug ("off rails: " + v.name + ": packed: " + v.packed + "; loaded: " + v.loaded + "; permGround: " + v.permanentGroundContact);
 				if (v.isEVA && !stabilizeKerbals) // Kerbals are usually ok
@@ -98,6 +102,9 @@ namespace WorldStabilizer
 					return;
 				if (checkExcludes (v)) // don't touch particular vessels 
 					return;
+
+				if (count == 0)
+					onWorldStabilizationStartEvent.Fire ();
 
 				vessel_timer [v.id] = stabilizationTimer;
 				printDebug ("Timer = " + vessel_timer [v.id]);
@@ -123,6 +130,9 @@ namespace WorldStabilizer
 		}
 
 		private void moveUp(Vessel v) {
+
+			v.ResetGroundContact();
+			v.ResetCollisionIgnores();
 
 			float upMovement = 0.0f;
 
@@ -207,8 +217,6 @@ namespace WorldStabilizer
 				updateLR (v, bounds [v.id]);
 
 			v.IgnoreGForces(20);
-			v.ResetGroundContact();
-			v.ResetCollisionIgnores();
 			v.SetWorldVelocity (Vector3.zero);
 			v.angularMomentum = Vector3.zero;
 			v.angularVelocity = Vector3.zero;
@@ -220,8 +228,10 @@ namespace WorldStabilizer
 				count--;
 				printDebug ("Stopping stabilizing " + v.name);
 				tryAttachAnchor (v);
-				if (count == 0)
+				if (count == 0) {
 					ScreenMessages.PostScreenMessage ("World has been stabilized");
+					onWorldStabilizedEvent.Fire ();
+				}
 			}
 
 		}
