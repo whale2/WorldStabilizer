@@ -10,6 +10,30 @@ namespace WorldStabilizer
 	[KSPAddon(KSPAddon.Startup.Flight, false)]
 	public class WorldStabilizer: MonoBehaviour
 	{
+		// configuration parameters
+
+		private static int stabilizationTicks = 100;
+		private static int groundingTicks = 3;
+
+		private static bool stabilizeInPrelaunch = true;
+		private static bool stabilizeKerbals = false;
+		private static bool recalculateBounds = true;
+		private static bool debug = true;
+		private static bool drawPoints = true;
+		private static bool displayMessage = true;
+
+		// if downmovement is below this value, leave as is
+		private static float minDownMovement = 0.05f;
+		// minimum upmovement in case we're beneath the ground
+		private static float upMovementStep = 0.2f;
+		// max upmovement in case upward movement is required; should cancel
+		// moving the craft to space in case we messed the things up
+		private static float maxUpMovement = 2.0f;
+
+		private const int rayCastMask = (1 << 28) | (1 << 15) ;
+		private const int rayCastExtendedMask = rayCastMask | 1;
+
+		private int stabilizationTimer;
 		private int count = 0;
 		private Dictionary<Guid, int> vessel_timer;
 		private Dictionary<Guid, LineRenderer> renderer0;
@@ -19,29 +43,6 @@ namespace WorldStabilizer
 		private Dictionary<Guid, List<PartModule>> anchors;
 		private List<string> excludeVessels;
 
-		private int stabilizationTicks = 100;
-		private int stabilizationTimer;
-		private int groundingTicks = 3;
-
-		// height measured from top and from bottom should not 
-		// differ by more than 20%
-		private float altitudeMismatchThreshold = 1.2f;
-
-		// if downmovement is below this value, leave as is
-		private float minDownMovement = 0.05f;
-		// minimum upmovement in case raycasts hit different colliders
-		private float upMovementStep = 0.2f;
-		// max upmovement in case raycasts don't converge
-		private float maxUpMovement = 2.0f;
-
-		private const int rayCastMask = (1 << 28) | (1 << 15) ;
-		private const int rayCastExtendedMask = rayCastMask | 1;
-
-		private bool stabilizeInPrelaunch = true;
-		private bool stabilizeKerbals = false;
-		private bool recalculateBounds = true;
-		private bool debug = true;
-		private bool drawPoints = true;
 
 		public static EventVoid onWorldStabilizationStartEvent;
 		public static EventVoid onWorldStabilizedEvent;
@@ -95,10 +96,11 @@ namespace WorldStabilizer
 			if (v.situation == Vessel.Situations.LANDED ||
 			    (stabilizeInPrelaunch && v.situation == Vessel.Situations.PRELAUNCH)) {
 
-				printDebug ("off rails: " + v.name + ": packed: " + v.packed + "; loaded: " + v.loaded + "; permGround: " + v.permanentGroundContact);
+				printDebug ("off rails: " + v.name + ": packed: " + v.packed + "; loaded: " + 
+					v.loaded + "; permGround: " + v.permanentGroundContact);
 				if (v.isEVA && !stabilizeKerbals) // Kerbals are usually ok
 					return;
-				if (v.packed) // no physics, let's leave it alone
+				if (v.packed) // no physics, leave it alone
 					return;
 				if (checkExcludes (v)) // don't touch particular vessels 
 					return;
@@ -143,14 +145,7 @@ namespace WorldStabilizer
 
 				RayCastResult alt = GetRaycastAltitude (v, bounds [v.id].bottomPoint + up * vesselHeight, rayCastMask); // mask: ground only
 				RayCastResult alt2 = GetRaycastAltitude (v, bounds [v.id].topPoint, rayCastMask); // mask: ground only
-				// if we hit different colliders, probably bottom is under the ground
-				// move up by suspension travel or minimum upMovement and try again
 
-				/*if (alt.collider != alt2.collider || alt.altitude == 0.0f ||
-					alt.altitude > Math.Abs(
-						alt2.altitude - vesselHeight) * altitudeMismatchThreshold) { // Altitudes measured from top and bottom sometimes
-					                                                               // really don't agree 
-				*/
 				printDebug (v.name + ": alt from top - height = " + (alt.altitude - vesselHeight) + 
 					"; alt from top: " + alt + "; vessel height = " + vesselHeight);
 				if (alt.altitude - vesselHeight < minDownMovement) {
@@ -190,8 +185,6 @@ namespace WorldStabilizer
 			float downMovement = alt.altitude;
 
 			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
-			// Lots of safeguarding goes here, as situations could be very tricky and we can't 
-			// determine altitude 100% correctly all the time
 
 			if (downMovement < minDownMovement) {
 				printDebug ("downmovement for " + v.name + " is below threshold; leaving as is: " + downMovement);
@@ -208,7 +201,7 @@ namespace WorldStabilizer
 
 		private void stabilize(Vessel v) {
 
-			if (vessel_timer [v.id] > stabilizationTimer - groundingTicks) // first 3 ticks
+			if (vessel_timer [v.id] > stabilizationTimer - groundingTicks) // first 3(?) ticks
 			{
 				moveDown (v);
 			}
@@ -229,11 +222,11 @@ namespace WorldStabilizer
 				printDebug ("Stopping stabilizing " + v.name);
 				tryAttachAnchor (v);
 				if (count == 0) {
-					ScreenMessages.PostScreenMessage ("World has been stabilized");
+					if (displayMessage)
+						ScreenMessages.PostScreenMessage ("World has been stabilized");
 					onWorldStabilizedEvent.Fire ();
 				}
 			}
-
 		}
 
 		private List<PartModule> findAnchoredParts(Vessel v) {
@@ -244,7 +237,8 @@ namespace WorldStabilizer
 			foreach (Part p in v.parts) {
 				foreach (PartModule pm in p.Modules) {
 					if (pm.moduleName == "GroundAnchor") {
-						printDebug (v.name + ": Found anchor on part " + p.name + "; attached = " + pm.Fields.GetValue("isAttached"));
+						printDebug (v.name + ": Found anchor on part " + p.name + "; attached = " + 
+							pm.Fields.GetValue("isAttached"));
 						if ((bool)pm.Fields.GetValue ("isAttached"))
 							anchorList.Add (pm);
 					}
@@ -273,6 +267,7 @@ namespace WorldStabilizer
 
 		private void invokeAction(PartModule pm, string actionName) {
 			printDebug ("Invoking action " + actionName + " on part " + pm.part.name);
+			// https://forum.kerbalspaceprogram.com/index.php?/topic/65106-trigger-a-parts-action-from-code/
 			BaseActionList bal = new BaseActionList(pm.part, pm); //create a BaseActionList bal with the available actions on the part. p being our current part, pm being our current partmodule
 			if (bal.Count == 0)
 				return;
@@ -403,6 +398,8 @@ namespace WorldStabilizer
 								closestVert = worldVertPoint;
 								downwardFurthestPart = p;
 
+								// TODO: Not used at the moment, but we might infer amount of 
+								// TODO: upward movement from this 
 								// If this is a landing gear, account for suspension compression
 								if (p.Modules.Contains ("ModuleWheelSuspension")) {
 									ModuleWheelSuspension suspension = p.GetComponent<ModuleWheelSuspension> ();
@@ -418,7 +415,6 @@ namespace WorldStabilizer
 							}
 						}
 					}
-
 				}
 
 				bottomLength = Vector3.Project(closestVert - vessel.CoM, up).magnitude;
@@ -495,6 +491,8 @@ namespace WorldStabilizer
 			
 		internal static void printDebug(String message) {
 
+			if (!debug)
+				return;
 			StackTrace trace = new StackTrace ();
 			String caller = trace.GetFrame(1).GetMethod ().Name;
 			int line = trace.GetFrame (1).GetFileLineNumber ();
@@ -512,10 +510,6 @@ namespace WorldStabilizer
 			nodeValue = config.GetValue ("groundingTicks");
 			if (nodeValue != null)
 				groundingTicks = Int32.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("altitudeMismatchThreshold");
-			if (nodeValue != null)
-				altitudeMismatchThreshold = float.Parse (nodeValue);
 
 			nodeValue = config.GetValue ("minDownMovement");
 			if (nodeValue != null)
@@ -545,6 +539,10 @@ namespace WorldStabilizer
 			if (nodeValue != null)
 				debug = Boolean.Parse (nodeValue);
 
+			nodeValue = config.GetValue ("displayMessage");
+			if (nodeValue != null)
+				displayMessage = Boolean.Parse (nodeValue);
+			
 			nodeValue = config.GetValue ("drawPoints");
 			if (nodeValue != null)
 				drawPoints = Boolean.Parse (nodeValue);
@@ -554,9 +552,6 @@ namespace WorldStabilizer
 				foreach(string exc in nodeValue.Split (','))
 					excludeVessels.Add(exc.Trim());
 			}
-				
 		}
-
 	}
 }
-
