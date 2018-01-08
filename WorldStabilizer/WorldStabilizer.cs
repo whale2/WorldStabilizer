@@ -214,8 +214,9 @@ namespace WorldStabilizer
 			v.angularMomentum = Vector3.zero;
 			v.angularVelocity = Vector3.zero;
 
-			if (vessel_timer [v.id] % 10 == 0)
+			if (vessel_timer [v.id] % 10 == 0) {
 				printDebug ("Stabilizing; v = " + v.name + "; radar alt = " + v.radarAltitude + "; timer = " + vessel_timer [v.id]);
+			}
 			vessel_timer [v.id]--;
 			if (vessel_timer [v.id] == 0) {
 				count--;
@@ -326,6 +327,19 @@ namespace WorldStabilizer
 			//printDebug ("line: " + vbounds.bottomPoint + " -> " + v.ReferenceTransform.TransformPoint(v.transform.forward));
 		}
 
+		public class Pair<T, U> {
+			public Pair() {
+			}
+
+			public Pair(T first, U second) {
+				this.First = first;
+				this.Second = second;
+			}
+
+			public T First { get; set; }
+			public U Second { get; set; }
+		}
+
 		public struct VesselBounds
 		{
 
@@ -382,16 +396,27 @@ namespace WorldStabilizer
 					if (p.Modules.Contains ("KASModuleHarpoon"))
 						continue;
 
-					foreach (MeshFilter mf in p.GetComponentsInChildren<MeshFilter>()) {
-						Mesh mesh = mf.mesh;
-						Collider[] cdr = mf.GetComponentsInChildren<Collider> ();
+					HashSet<Pair<Transform, Mesh>> meshes = new HashSet<Pair<Transform, Mesh>>();
+					foreach (MeshFilter filter in p.GetComponentsInChildren<MeshFilter>()) {
 
-						if (cdr.Length == 0 && !p.Modules.Contains ("ModuleWheelBase")) // For some reasons wheels don't have colliders at this time
-							continue;
-						
+						Collider[] cdr = filter.GetComponentsInChildren<Collider> ();
+						if (cdr.Length > 0 || p.Modules.Contains("ModuleWheelSuspension")) { 
+							// for whatever reason suspension needs an additional treatment
+							// TODO: Maybe address it by searching for wheel collider
+							meshes.Add (new Pair<Transform, Mesh>(filter.transform,  filter.mesh));
+						}
+					}
+
+					foreach (MeshCollider mcdr in p.GetComponentsInChildren<MeshCollider> ()) {
+						meshes.Add(new Pair<Transform, Mesh>(mcdr.transform, mcdr.sharedMesh));
+					}
+
+					foreach (Pair<Transform, Mesh> meshpair in meshes) {
+						Mesh mesh = meshpair.Second;
+						Transform tr = meshpair.First;
 						foreach (Vector3 vert in mesh.vertices) {
 							//bottom check
-							Vector3 worldVertPoint = mf.transform.TransformPoint (vert);
+							Vector3 worldVertPoint = tr.TransformPoint (vert);
 							float bSqrDist = (downPoint - worldVertPoint).sqrMagnitude;
 							if (bSqrDist < closestSqrDist) {
 								closestSqrDist = bSqrDist;
@@ -401,11 +426,14 @@ namespace WorldStabilizer
 								// TODO: Not used at the moment, but we might infer amount of 
 								// TODO: upward movement from this 
 								// If this is a landing gear, account for suspension compression
-								if (p.Modules.Contains ("ModuleWheelSuspension")) {
+								/*if (p.Modules.Contains ("ModuleWheelSuspension")) {
 									ModuleWheelSuspension suspension = p.GetComponent<ModuleWheelSuspension> ();
 									if (maxSuspensionTravel < suspension.suspensionDistance)
 										maxSuspensionTravel = suspension.suspensionDistance;
-								}
+									printDebug ("Suspension: dist=" + suspension.suspensionDistance + "; offset="
+										+ suspension.suspensionOffset + "; pos=(" + suspension.suspensionPos.x + "; "
+										+ suspension.suspensionPos.y + "; " + suspension.suspensionPos.z + ")");
+								}*/
 							}
 							bSqrDist = (upPoint - worldVertPoint).sqrMagnitude;
 							if (bSqrDist < farthestSqrDist) {
@@ -424,7 +452,7 @@ namespace WorldStabilizer
 				try {
 					printDebug ("vessel = " + vessel.name + "; furthest downward part = " + downwardFurthestPart.name +
 						"; upward part = " + upwardFurthestPart.name);
-					
+
 					printDebug ("vessel = " + vessel.name + "; bottomLength = " + bottomLength + "; bottomPoint = " +
 						bottomPoint + "; topLength = " + topLength + "; topPoint = " + topPoint);
 				}
