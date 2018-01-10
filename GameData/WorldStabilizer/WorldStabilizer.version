@@ -5,12 +5,12 @@
      "GITHUB":{
          "USERNAME": "whale2",
          "REPOSITORY": "https://github.com/whale2/WorldStabilizer/releases",
-         "ALLOW_PRE_RELEASE": false,
+         "ALLOW_PRE_RELEASE": false
      },
      "VERSION":{
          "MAJOR":0,
-         "MINOR":7,
-         "PATCH":1,
+         "MINOR":8,
+         "PATCH":0
      },
      "KSP_VERSION":{
          "MAJOR":1,
