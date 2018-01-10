@@ -49,6 +49,8 @@ namespace WorldStabilizer
 		private static string KISAddOnName = "KIS";
 		private static string KISModuleName = "KIS.ModuleKISItem";
 		private static Type KISAddOnType;
+		private static MethodInfo detachMethod = null;
+		private static MethodInfo attachMethod = null;
 
 		public static EventVoid onWorldStabilizationStartEvent;
 		public static EventVoid onWorldStabilizedEvent;
@@ -70,6 +72,11 @@ namespace WorldStabilizer
 				if (asm.name.Equals(KISAddOnName)) {
 
 					KISAddOnType = asm.assembly.GetType (KISModuleName);
+					detachMethod = KISAddOnType.GetMethod ("GroundDetach");
+					attachMethod = KISAddOnType.GetMethod ("GroundAttach");
+
+					if (detachMethod == null || attachMethod == null)
+						return;
 					hasKISAddOn = true;
 					printDebug ("KIS found"); 
 					break;
@@ -258,13 +265,14 @@ namespace WorldStabilizer
 
 			foreach (Part p in v.parts) {
 				foreach (PartModule pm in p.Modules) {
-					if (pm.moduleName == "ModuleKISItem") {
-						bool isAttached = (bool)pm.Fields.GetValue ("staticAttached");
-						printDebug (v.name + ": Found static attached KAS part " + p.name);
-						pylonList.Add (pm);
+					if (pm.moduleName == "ModuleKISItem" &&
+						(bool)pm.Fields.GetValue ("staticAttached")) {
+							printDebug (v.name + ": Found static attached KAS part " + p.name);
+							pylonList.Add (pm);
 					}
 				}
 			}
+
 			printDebug ("Found " + pylonList.Count + " pylons");
 			return pylonList;
 		}
@@ -275,9 +283,7 @@ namespace WorldStabilizer
 				return;
 			pylons [v.id] = findAttachedKASPylons (v);
 			foreach (PartModule pm in pylons[v.id]) {
-				MethodInfo methodInfo = KISAddOnType.GetMethod ("GroundDetach");
-				if (methodInfo != null)
-					methodInfo.Invoke (pm, null);
+				detachMethod.Invoke (pm, null);
 			}
 		}
 
@@ -285,9 +291,7 @@ namespace WorldStabilizer
 			if (!pylons.ContainsKey (v.id))
 				return;
 			foreach (PartModule pm in pylons[v.id]) {
-				MethodInfo methodInfo = KISAddOnType.GetMethod ("GroundAttach");
-				if (methodInfo != null)
-					methodInfo.Invoke (pm, null);
+				attachMethod.Invoke (pm, null);
 			}
 			pylons.Remove (v.id);
 		}
