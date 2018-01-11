@@ -46,11 +46,10 @@ namespace WorldStabilizer
 		private List<string> excludeVessels;
 
 		private bool hasKISAddOn = false;
-		private static string KISAddOnName = "KIS";
+		internal static string KISAddOnName = "KIS";
 		private static string KISModuleName = "KIS.ModuleKISItem";
 		private static Type KISAddOnType;
 		private static MethodInfo detachMethod = null;
-		private static MethodInfo attachMethod = null;
 
 		public static EventVoid onWorldStabilizationStartEvent;
 		public static EventVoid onWorldStabilizedEvent;
@@ -61,6 +60,16 @@ namespace WorldStabilizer
 			onWorldStabilizedEvent = new EventVoid ("onWorldStabilized");
 		}
 
+		internal static Type findKISModule() {
+			foreach (AssemblyLoader.LoadedAssembly asm in AssemblyLoader.loadedAssemblies) {
+				if (asm.name.Equals (KISAddOnName)) {
+
+					return asm.assembly.GetType (KISModuleName);
+				}
+			}
+			return null;
+		}
+
 		public void Awake() {
 			printDebug("Awake");
 			excludeVessels = new List<string>();
@@ -68,18 +77,13 @@ namespace WorldStabilizer
 
 			printDebug("Looking for KIS");
 			// Check if KIS present
-			foreach(AssemblyLoader.LoadedAssembly asm in AssemblyLoader.loadedAssemblies) {
-				if (asm.name.Equals(KISAddOnName)) {
-
-					KISAddOnType = asm.assembly.GetType (KISModuleName);
-					detachMethod = KISAddOnType.GetMethod ("GroundDetach");
-					attachMethod = KISAddOnType.GetMethod ("GroundAttach");
-
-					if (detachMethod == null || attachMethod == null)
-						return;
+			KISAddOnType = findKISModule();
+			if (KISAddOnType != null) 
+			{
+				detachMethod = KISAddOnType.GetMethod ("GroundDetach");
+				if (detachMethod != null) {
 					hasKISAddOn = true;
 					printDebug ("KIS found"); 
-					break;
 				}
 			}
 		}
@@ -110,7 +114,6 @@ namespace WorldStabilizer
 				vessel_timer [v.id] = 0;
 				count--;
 				tryAttachAnchor (v);
-				tryAttachPylon (v);
 				if (drawPoints) {
 					renderer0 [v.id].gameObject.DestroyGameObject ();
 					renderer1 [v.id].gameObject.DestroyGameObject ();
@@ -144,6 +147,8 @@ namespace WorldStabilizer
 				tryDetachAnchor (v); // If this vessel has anchors (from Hangar), detach them
 				tryDetachPylon(v); // Same with KAS pylons
 				moveUp (v);
+				// Setting up attachment procedure early
+				tryAttachPylon (v);
 			}
 		}
 
@@ -250,7 +255,7 @@ namespace WorldStabilizer
 				count--;
 				printDebug ("Stopping stabilizing " + v.name);
 				tryAttachAnchor (v);
-				tryAttachPylon (v);
+
 				if (count == 0) {
 					if (displayMessage)
 						ScreenMessages.PostScreenMessage ("World has been stabilized");
@@ -291,7 +296,11 @@ namespace WorldStabilizer
 			if (!pylons.ContainsKey (v.id))
 				return;
 			foreach (PartModule pm in pylons[v.id]) {
-				attachMethod.Invoke (pm, null);
+				// Adding parasite module to the part
+				// It will re-activate ground conneciton upon ground contact
+				// and destroy itself afterwards
+				printDebug("Adding KASPylonReconnector to " + pm.part.name);
+				pm.part.AddModule("KASPylonReconnector", true);
 			}
 			pylons.Remove (v.id);
 		}
