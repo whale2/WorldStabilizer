@@ -16,23 +16,42 @@ namespace WorldStabilizer
 	{
 		// configuration parameters
 
-		private static int stabilizationTicks = 100;
-		private static int groundingTicks = 3;
+		// How many ticks do we hold the vessel
+		[KSPField] public static int stabilizationTicks = 100;
+		// How many ticks do we try to put the vessel down
+		[KSPField] public static int groundingTicks = 3;
 
-		private static bool stabilizeInPrelaunch = true;
-		private static bool stabilizeKerbals = false;
-		private static bool recalculateBounds = true;
-		private static bool debug = true;
-		private static bool drawPoints = true;
-		private static bool displayMessage = true;
+		// Should we stabilize vessels in PRELAUNCH state
+		[KSPField] public static bool stabilizeInPrelaunch = true;
+		// Should we stabilize Kerbals
+		[KSPField] public static bool stabilizeKerbals = false;
+		// Should we recalculate vessel bounds before every attempt to move it
+		[KSPField] public static bool recalculateBounds = true;
+		// Should we write debug info
+		[KSPField] public static bool debug = true;
+		// Should we draw markers around topmost and bottommost vessel points
+		[KSPField] public static bool drawPoints = true;
+		// Should we display 'World has been stabilized' message
+		[KSPField] public static bool displayMessage = true;
+		// When undocking harpoons, set joint force and torque to this value
+		// Otherwise they are ripped off
+		[KSPField] public static int harpoonReiforcedForce = 200;
+		// How long to wait for harpoon reattaching after landing gear ground contact
+		[KSPField] public static int harpoonReattachTimeout = 1;
+		// How often to check for landed state 
+		// (See GearHarpoonReconnector)
+		[KSPField] public static float checkLandedPeriod = 0.5f;
+		// If there was no ground contact on landing gear after waiting for this long
+		// give up on harpoon reattachment
+		[KSPField] public static float checkLandedTimeout = 10f;
 
-		// if downmovement is below this value, leave as is
-		private static float minDownMovement = 0.05f;
-		// minimum upmovement in case we're beneath the ground
-		private static float upMovementStep = 0.2f;
-		// max upmovement in case upward movement is required; should cancel
+		// If downmovement is below this value, leave the vessel as is
+		[KSPField] private static float minDownMovement = 0.05f;
+		// Minimum upmovement in case we're beneath the ground
+		[KSPField] private static float upMovementStep = 0.2f;
+		// Max upmovement in case upward movement is required; should cancel
 		// moving the craft to space in case we messed the things up
-		private static float maxUpMovement = 2.0f;
+		[KSPField] private static float maxUpMovement = 2.0f;
 
 		private const int rayCastMask = (1 << 28) | (1 << 15) ;
 		private const int rayCastExtendedMask = rayCastMask | 1;
@@ -395,13 +414,11 @@ namespace WorldStabilizer
 			if (!hasKASAddOn)
 				return;
 			winches [v.id] = new List<KASModuleWinch> ();
-			List<KASModuleHarpoon> vesselHarpoons = new List<KASModuleHarpoon> ();
 			harpoons [v.id] = findStuckHarpoons (v);
 			foreach (KASModuleHarpoon pm in harpoons[v.id]) {
 				if (pm.StaticAttach.fixedJoint != null) {
-					// TODO: reset forces
-					pm.StaticAttach.fixedJoint.breakForce = 200;
-					pm.StaticAttach.fixedJoint.breakTorque = 200;
+					pm.StaticAttach.fixedJoint.breakForce = harpoonReiforcedForce;
+					pm.StaticAttach.fixedJoint.breakTorque = harpoonReiforcedForce;
 				}
 				KASModuleWinch winch = findConnectedWinch (pm);
 				if (winch == null || winch.headState != KASModuleWinch.PlugState.PlugDocked)
@@ -453,8 +470,8 @@ namespace WorldStabilizer
 
 		private IEnumerator tryAttachHarpoonCoro(Vessel v) {
 		
-			printDebug ("re-attaching harpoons in 1 sec");
-			yield return new WaitForSeconds (1);
+			printDebug ("re-attaching harpoons in " + harpoonReattachTimeout + " sec");
+			yield return new WaitForSeconds (harpoonReattachTimeout);
 
 			tryAttachHarpoonImmediately (v);	
 		}
@@ -747,51 +764,7 @@ namespace WorldStabilizer
 		
 			var config = GameDatabase.Instance.GetConfigs ("WorldStabilizer").FirstOrDefault ().config;
 
-			string nodeValue = config.GetValue ("stabilizationTicks");
-			if (nodeValue != null)
-				stabilizationTicks = Int32.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("groundingTicks");
-			if (nodeValue != null)
-				groundingTicks = Int32.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("minDownMovement");
-			if (nodeValue != null)
-				minDownMovement = float.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("maxUpMovement");
-			if (nodeValue != null)
-				maxUpMovement = float.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("upMovementStep");
-			if (nodeValue != null)
-				upMovementStep = float.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("stabilizeInPrelaunch");
-			if (nodeValue != null)
-				stabilizeInPrelaunch = Boolean.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("stabilizeKerbals");
-			if (nodeValue != null)
-				stabilizeKerbals = Boolean.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("recalculateBounds");
-			if (nodeValue != null)
-				recalculateBounds = Boolean.Parse (nodeValue);
-			
-			nodeValue = config.GetValue ("debug");
-			if (nodeValue != null)
-				debug = Boolean.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("displayMessage");
-			if (nodeValue != null)
-				displayMessage = Boolean.Parse (nodeValue);
-			
-			nodeValue = config.GetValue ("drawPoints");
-			if (nodeValue != null)
-				drawPoints = Boolean.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("excludeVessels");
+			string nodeValue = config.GetValue ("excludeVessels");
 			if (nodeValue != null) {
 				foreach(string exc in nodeValue.Split (','))
 					excludeVessels.Add(exc.Trim());
