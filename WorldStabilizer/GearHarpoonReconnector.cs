@@ -23,8 +23,8 @@ namespace WorldStabilizer
 			// so polling state each 0.5s and giving up in 10s
 			// TODO: Make configurable
 			wheelBase = (ModuleWheelBase)part.Modules ["ModuleWheelBase"];
-			InvokeRepeating ("checkLanded", 0.5f, 0.5f);
-			Invoke ("selfDestruct", 10f);
+			InvokeRepeating ("checkLanded", WorldStabilizer.checkLandedPeriod, WorldStabilizer.checkLandedPeriod);
+			Invoke ("selfDestruct", WorldStabilizer.checkLandedTimeout);
 		}
 
 		private void selfDestruct() {
