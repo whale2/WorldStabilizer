@@ -1,0 +1,32 @@
+{
+     "NAME": "World Stabilizer",
+     "URL": "https://raw.githubusercontent.com/whale2/WorldStabilizer/master/GameData/WorldStabilizer/WorldStabilizer.version",
+     "DOWNLOAD": "https://github.com/whale2/WorldStabilizer/releases",
+     "GITHUB":{
+         "USERNAME": "whale2",
+         "REPOSITORY": "https://github.com/whale2/WorldStabilizer/releases",
+         "ALLOW_PRE_RELEASE": false
+     },
+     "VERSION":{
+         "MAJOR":0,
+         "MINOR":8,
+         "PATCH":3
+     },
+     "KSP_VERSION":{
+         "MAJOR":1,
+         "MINOR":3,
+         "PATCH":1
+     },
+     "KSP_VERSION_MIN":
+     {
+        "MAJOR":1,
+        "MINOR":3,
+        "PATCH":1
+     },
+     "KSP_VERSION_MAX":
+     {
+        "MAJOR":1,
+        "MINOR":3,
+        "PATCH":1
+     }
+}

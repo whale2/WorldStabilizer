@@ -5,8 +5,6 @@ using System.Collections.Generic;
 using System.Linq;
 using ModuleWheels;
 using System.Reflection;
-using KIS;
-using KAS;
 using System.Collections;
 
 namespace WorldStabilizer
@@ -33,9 +31,6 @@ namespace WorldStabilizer
 		public static bool drawPoints = true;
 		// Should we display 'World has been stabilized' message
 		public static bool displayMessage = true;
-		// When undocking harpoons, set joint force and torque to this value
-		// Otherwise they are ripped off
-		public static int harpoonReiforcedForce = 200;
 		// How long to wait for harpoon reattaching after landing gear ground contact
 		public static float harpoonReattachTimeout = 1;
 		// How often to check for landed state 
@@ -64,19 +59,11 @@ namespace WorldStabilizer
 
 		private Dictionary<Guid, VesselBounds> bounds;
 		private Dictionary<Guid, List<PartModule>> anchors;
-		private Dictionary<Guid, List<ModuleKISItem>> pylons;
-		private Dictionary<Guid, List<KASModuleWinch>> winches;
-		private Dictionary<Guid, List<KASModuleHarpoon>> harpoons;
+
+		private List<Vessel> vesselsToMoveUp;
 
 		private List<string> excludeVessels;
 
-		private bool hasKISAddOn = false;
-		internal static string KISAddOnName = "KIS";
-		private static string KISModuleName = "KIS.ModuleKISItem";
-
-		private bool hasKASAddOn = false;
-		internal static string KASAddOnName = "KAS";
-		private static string KASHarpoonModuleName = "KAS.KASModuleHarpoon";
 
 		public static EventVoid onWorldStabilizationStartEvent;
 		public static EventVoid onWorldStabilizedEvent;
@@ -89,26 +76,6 @@ namespace WorldStabilizer
 			onWorldStabilizedEvent = new EventVoid ("onWorldStabilized");
 		}
 
-		internal static Type findKISModule() {
-			foreach (AssemblyLoader.LoadedAssembly asm in AssemblyLoader.loadedAssemblies) {
-				if (asm.name.Equals (KISAddOnName)) {
-
-					return asm.assembly.GetType (KISModuleName);
-				}
-			}
-			return null;
-		}
-
-		internal static Type findKASModule() {
-			foreach (AssemblyLoader.LoadedAssembly asm in AssemblyLoader.loadedAssemblies) {
-				if (asm.name.Equals (KASAddOnName)) {
-
-					return asm.assembly.GetType (KASHarpoonModuleName);
-				}
-			}
-			return null;
-		}
-
 		public void Awake() {
 			
 			printDebug("Awake");
@@ -118,40 +85,23 @@ namespace WorldStabilizer
 			excludeVessels = new List<string>();
 			configure ();
 
-			printDebug("Looking for KIS");
-			// Check if KIS present
-			Type KISAddOnType = findKISModule();
-			if (KISAddOnType != null) 
-			{
-				hasKISAddOn = true;
-				printDebug ("KIS found"); 
-			}
-
-			printDebug("Looking for KAS");
-			// Check if KAS present
-			Type KASAddOnType = findKASModule();
-			if (KASAddOnType != null) 
-			{
-				hasKASAddOn = true;
-				printDebug ("KAS found"); 
-			}
+			KASAPI.initialize ();
 		}
 
 		public void Start() {
+			
 			printDebug("Start");
 			vessel_timer = new Dictionary<Guid, int> ();
 			renderer0 = new Dictionary<Guid, LineRenderer> ();
 			renderer1 = new Dictionary<Guid, LineRenderer> ();
 			bounds = new Dictionary<Guid, VesselBounds> ();
 			anchors = new Dictionary<Guid, List<PartModule>> ();
-			pylons = new Dictionary<Guid, List<ModuleKISItem>> ();
-			winches = new Dictionary<Guid, List<KASModuleWinch>> ();
-			harpoons = new Dictionary<Guid, List<KASModuleHarpoon>> ();
+			vesselsToMoveUp = new List<Vessel> ();
 
 			GameEvents.onVesselGoOffRails.Add (onVesselGoOffRails);
 			GameEvents.onVesselGoOnRails.Add (onVesselGoOnRails);
 
-			stabilizationTimer = stabilizationTicks; //(int)(stabilizationFactor / Time.fixedDeltaTime);  // If delta = 0.01, we will keep vessels 300 frames
+			stabilizationTimer = stabilizationTicks;
 		}
 
 		public void OnDestroy() {
@@ -194,14 +144,9 @@ namespace WorldStabilizer
 				if (drawPoints)
 					initLR (v, bounds[v.id]);
 				count++;
-				tryDetachAnchor (v); // If this vessel has anchors (from Hangar), detach them
-				tryDetachPylon(v); // Same with KAS pylons
-				tryDetachHarpoon(v);
-				moveUp (v);
-				// Setting up attachment procedure early
-				tryAttachPylon (v);
-				tryAttachAnchor (v);
-				scheduleHarpoonReattachment(v);
+
+				// Scheduling moving up at fixed update to allow other modules to fully initialize
+				vesselsToMoveUp.Add (v);
 			}
 		}
 
@@ -209,12 +154,30 @@ namespace WorldStabilizer
 			if (count == 0)
 				return;
 
+			for (int i = vesselsToMoveUp.Count - 1; i >= 0; i--) {
+
+				Vessel v = vesselsToMoveUp [i];
+				tryDetachAnchor (v); // If this vessel has anchors (from Hangar), detach them
+				KASAPI.tryDetachPylon(v); // Same with KAS pylons
+				KASAPI.tryDetachHarpoon(v);
+				moveUp (v);
+				// Setting up attachment procedure early
+				KASAPI.tryAttachPylon (v);
+				tryAttachAnchor (v);
+				scheduleHarpoonReattachment(v);
+
+				vesselsToMoveUp.RemoveAt (i);
+			}
+
 			foreach (Vessel v in FlightGlobals.VesselsLoaded) {
 				if (vessel_timer.ContainsKey (v.id) && vessel_timer[v.id] > 0) {
 					stabilize (v);
 				}
 				antiSlide (v);
 			}
+
+			foreach (Rigidbody rb in KASAPI.harpoonsToHold)
+				KASAPI.holdHarpoon (rb);
 		}
 
 		private void moveUp(Vessel v) {
@@ -317,48 +280,7 @@ namespace WorldStabilizer
 				}
 			}
 		}
-			
-		private List<ModuleKISItem> findAttachedKASPylons(Vessel v) {
-			printDebug ("Looking for KAS pylons attached to the ground in " + v.name);
-			List<ModuleKISItem> pylonList = new List<ModuleKISItem> ();
-
-			foreach (Part p in v.parts) {
-				if (!p.Modules.Contains ("ModuleKISItem"))
-					continue;
-				ModuleKISItem pm = (ModuleKISItem)p.Modules ["ModuleKISItem"];
-				if (pm.staticAttached) {
-					printDebug (v.name + ": Found static attached KAS part " + p.name);
-					pylonList.Add (pm);
-				}
-			}
-
-			printDebug ("Found " + pylonList.Count + " pylons");
-			return pylonList;
-		}
-
-		private void tryDetachPylon(Vessel v) {
-
-			if (!hasKISAddOn)
-				return;
-			pylons [v.id] = findAttachedKASPylons (v);
-			foreach (ModuleKISItem pm in pylons[v.id]) {
-				pm.GroundDetach ();
-			}
-		}
-
-		private void tryAttachPylon(Vessel v) {
-			if (!pylons.ContainsKey (v.id))
-				return;
-			foreach (ModuleKISItem pm in pylons[v.id]) {
-				// Adding parasite module to the part
-				// It will re-activate ground conneciton upon ground contact
-				// and destroy itself afterwards
-				printDebug("Adding KASPylonReconnector to " + pm.part.name);
-				pm.part.AddModule("KASPylonReconnector", true);
-			}
-			pylons.Remove (v.id);
-		}
-
+	
 		private List<PartModule> findAnchoredParts(Vessel v) {
 
 			printDebug ("Looking for anchors in " + v.name);
@@ -400,102 +322,38 @@ namespace WorldStabilizer
 			anchors.Remove (v.id);
 		}
 
-		private KASModuleWinch findConnectedWinch(PartModule harpoon) {
-
-			KASModulePort modulePort = (KASModulePort)harpoon.part.Modules ["KASModulePort"];
-			return modulePort.winchConnected;
-		}
-
-		private void tryDetachHarpoon(Vessel v) {
-			// New plan 
-			//   - find winch connected to this attached harpoon 
-			//   - set the winch to undocked state and release it 
-			//   - upon ground contact set back to docked state
-			if (!hasKASAddOn)
-				return;
-			winches [v.id] = new List<KASModuleWinch> ();
-			harpoons [v.id] = findStuckHarpoons (v);
-			foreach (KASModuleHarpoon pm in harpoons[v.id]) {
-				if (pm.StaticAttach.fixedJoint != null) {
-					pm.StaticAttach.fixedJoint.breakForce = harpoonReiforcedForce;
-					pm.StaticAttach.fixedJoint.breakTorque = harpoonReiforcedForce;
-				}
-				KASModuleWinch winch = findConnectedWinch (pm);
-				if (winch == null || winch.headState != KASModuleWinch.PlugState.PlugDocked)
-					continue;
-				winch.ChangePlugMode(KASModuleWinch.PlugState.PlugUndocked);
-				winch.release.active = true;
-				winches [v.id].Add (winch);
-			}
-		}
-
 		private void scheduleHarpoonReattachment(Vessel v) {
-			if (!hasKASAddOn)
+			if (!KASAPI.hasKASAddOn)
 				return;
-			if (!winches.ContainsKey (v.id) || winches[v.id].Count() == 0)
+			if (!KASAPI.winches.ContainsKey (v.id) || KASAPI.winches[v.id].Count() == 0)
 				return;
-			// TODO: If bottom part is wheel/landing gear, OnCollisionEnter is not fired
-			// TODO: Plus there should be some settle time.
+
 			Part bottom = bounds [v.id].bottomPart;
+			// FIXME: What about KSPWheel?
 			if (bottom.Modules.Contains ("ModuleWheelBase")) {
 				bottom.AddModule ("GearHarpoonReconnector", true);
-				printDebug ("Added GearHarpoonReconnector for part " + bottom.name);
+				printDebug ("Added GearHarpoonReconnector for part " + bottom.name + "; vessel: " + v.name);
 			} else {
 				bottom.AddModule ("HarpoonReconnector", true);
 			}
 		}
 
+
+		// Keeping here as we ingerit from MonoBehavior
 		internal void tryAttachHarpoon(Vessel v) {
-			if (!winches.ContainsKey (v.id))
+			if (!KASAPI.winches.ContainsKey (v.id))
 				return;
 			StartCoroutine (this.tryAttachHarpoonCoro (v));
 		}
-
-		internal void tryAttachHarpoonImmediately(Vessel v) {
 			
-			if (winches.ContainsKey (v.id)) {
-				printDebug ("re-attaching harpoons now");
-				foreach (KASModuleWinch winch in winches[v.id]) {
-					winch.ChangePlugMode (KASModuleWinch.PlugState.PlugDocked);
-					winch.release.active = false;
-				}
-				foreach (KASModuleHarpoon harpoon in harpoons[v.id]) {
-					harpoon.StaticAttach.fixedJoint.breakForce = harpoon.staticBreakForce;
-					harpoon.StaticAttach.fixedJoint.breakTorque = harpoon.staticBreakForce;
-				}
-				winches.Remove (v.id);
-				harpoons.Remove (v.id);
-			}
-		}
-
 		private IEnumerator tryAttachHarpoonCoro(Vessel v) {
 		
 			printDebug ("re-attaching harpoons in " + harpoonReattachTimeout + " sec");
 			yield return new WaitForSeconds (harpoonReattachTimeout);
 
-			tryAttachHarpoonImmediately (v);	
+			KASAPI.tryAttachHarpoonImmediately (v);
 		}
 
-		private List<KASModuleHarpoon> findStuckHarpoons(Vessel v) {
-			
-			printDebug ("Looking for harpoons stuck in the ground in " + v.name);
-			List<KASModuleHarpoon> harpoonList = new List<KASModuleHarpoon> ();
-
-			foreach (Part p in v.parts) {
-				if (p.name != "KAS.Hook.Harpoon")
-					continue;
-				if (!p.Modules.Contains ("KASModuleHarpoon"))
-					continue;
-				KASModuleHarpoon pm = (KASModuleHarpoon)p.Modules ["KASModuleHarpoon"];
-
-				if (!pm.attachMode.StaticJoint)
-					continue;
-				harpoonList.Add (pm);
-			}
-			printDebug ("Found " + harpoonList.Count + " stuck harpoons");
-			return harpoonList;
-		}
-			
 		internal static void invokeAction(PartModule pm, string actionName) {
 			printDebug ("Invoking action " + actionName + " on part " + pm.part.name);
 			// https://forum.kerbalspaceprogram.com/index.php?/topic/65106-trigger-a-parts-action-from-code/
@@ -809,10 +667,6 @@ namespace WorldStabilizer
 			nodeValue = config.GetValue ("drawPoints");
 			if (nodeValue != null)
 				drawPoints = Boolean.Parse (nodeValue);
-
-			nodeValue = config.GetValue ("harpoonReiforcedForce");
-			if (nodeValue != null)
-				harpoonReiforcedForce = Int32.Parse (nodeValue);
 
 			nodeValue = config.GetValue ("harpoonReattachTimeout");
 			if (nodeValue != null)

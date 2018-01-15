@@ -33,7 +33,7 @@ namespace WorldStabilizer
 
 		protected void checkLanded() {
 			if (wheelBase.isGrounded) {
-				WorldStabilizer.printDebug ("detected landed state on part " + part.name);
+				WorldStabilizer.printDebug ("GearHarpoonReconnector: detected landed state on part " + part.name);
 				reattach ();
 				selfDestructTimer = 3;
 			}

@@ -22,8 +22,8 @@ namespace WorldStabilizer
 
 			if (reattached)
 				return;
-			WorldStabilizer.printDebug ("Harpoon: re-attaching to the ground; part = " + part.name);
-			WorldStabilizer.instance.tryAttachHarpoonImmediately (vessel);
+			WorldStabilizer.printDebug ("HarpoonReconnector: re-attaching to the ground; part = " + part.name);
+			KASAPI.tryAttachHarpoonImmediately (vessel);
 			reattached = true;
 		}
 	}
