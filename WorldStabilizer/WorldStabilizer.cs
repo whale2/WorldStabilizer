@@ -17,8 +17,7 @@ namespace WorldStabilizer
 		// How many ticks do we hold the vessel
 		public static int stabilizationTicks = 100;
 		// How many ticks do we try to put the vessel down
-		public static int groundingTicks = 3;
-
+		public static int groundingTicks = 5;
 		// Should we stabilize vessels in PRELAUNCH state
 		public static bool stabilizeInPrelaunch = true;
 		// Should we stabilize Kerbals
@@ -59,6 +58,8 @@ namespace WorldStabilizer
 
 		private Dictionary<Guid, VesselBounds> bounds;
 		private Dictionary<Guid, List<PartModule>> anchors;
+		private Dictionary<Guid, double> initialAltitude;
+		private Dictionary<uint, CollisionEnhancerBehaviour> ceBehaviors;
 
 		private List<Vessel> vesselsToMoveUp;
 
@@ -97,9 +98,12 @@ namespace WorldStabilizer
 			bounds = new Dictionary<Guid, VesselBounds> ();
 			anchors = new Dictionary<Guid, List<PartModule>> ();
 			vesselsToMoveUp = new List<Vessel> ();
+			initialAltitude = new Dictionary<Guid, double> ();
+			ceBehaviors = new Dictionary<uint, CollisionEnhancerBehaviour> ();
 
 			GameEvents.onVesselGoOffRails.Add (onVesselGoOffRails);
 			GameEvents.onVesselGoOnRails.Add (onVesselGoOnRails);
+			GameEvents.onVesselSwitching.Add (onVesselSwitching);
 
 			stabilizationTimer = stabilizationTicks;
 		}
@@ -108,6 +112,7 @@ namespace WorldStabilizer
 			printDebug("OnDestroy");
 			GameEvents.onVesselGoOffRails.Remove (onVesselGoOffRails);
 			GameEvents.onVesselGoOnRails.Remove (onVesselGoOnRails);
+			GameEvents.onVesselSwitching.Remove (onVesselSwitching);
 		}
 
 		public void onVesselGoOnRails(Vessel v) {
@@ -119,6 +124,9 @@ namespace WorldStabilizer
 					renderer1 [v.id].gameObject.DestroyGameObject ();
 				}
 			}
+			// tryDetachAnchor (v); // If this vessel has anchors (from Hangar), detach them
+			KASAPI.tryDetachPylon (v); // Same with KAS pylons
+			// KASAPI.tryDetachHarpoon (v);
 		}
 			
 		public void onVesselGoOffRails(Vessel v) {
@@ -126,63 +134,79 @@ namespace WorldStabilizer
 			if (v.situation == Vessel.Situations.LANDED ||
 			    (stabilizeInPrelaunch && v.situation == Vessel.Situations.PRELAUNCH)) {
 
-				printDebug ("off rails: " + v.name + ": packed: " + v.packed + "; loaded: " + 
-					v.loaded + "; permGround: " + v.permanentGroundContact);
-				if (v.isEVA && !stabilizeKerbals) // Kerbals are usually ok
+				printDebug ("off rails: " + v.name + ": alt: " + v.altitude + "; radar alt: " + v.radarAltitude + 
+					"; proto alt: " + v.protoVessel.altitude);
+				if (v.isEVA && !stabilizeKerbals) { // Kerbals are usually ok
 					return;
-				if (v.packed) // no physics, leave it alone
+				}
+				if (v.packed) { // no physics, leave it alone
 					return;
-				if (checkExcludes (v)) // don't touch particular vessels 
+				}
+				if (checkExcludes (v)) { // don't touch particular vessels 
 					return;
+				}
 
-				if (count == 0)
+				if (count == 0) {
 					onWorldStabilizationStartEvent.Fire ();
+				}
 
 				vessel_timer [v.id] = stabilizationTimer;
-				printDebug ("Timer = " + vessel_timer [v.id]);
 				bounds [v.id] = new VesselBounds (v);
-				if (drawPoints)
-					initLR (v, bounds[v.id]);
+				if (drawPoints) {
+					initLR (v, bounds [v.id]);
+				}
 				count++;
 
 				// Scheduling moving up at fixed update to allow other modules to fully initialize
+				initialAltitude[v.id] = v.altitude;
 				vesselsToMoveUp.Add (v);
 			}
 		}
 
-		public void FixedUpdate() {
-			if (count == 0)
+		public void onVesselSwitching(Vessel from, Vessel to) {
+
+			printDebug (from.name + "(packed=" + from.packed + ") -> " + to.name + "(packed=" + to.packed + ")");
+			if (!to.packed) {
 				return;
+			}
 
-			for (int i = vesselsToMoveUp.Count - 1; i >= 0; i--) {
+			tryDetachAnchor (to); // If this vessel has anchors (from Hangar), detach them
+			KASAPI.tryDetachPylon (to); // Same with KAS pylons
+			KASAPI.tryDetachHarpoon (to);
+		}
 
-				Vessel v = vesselsToMoveUp [i];
-				tryDetachAnchor (v); // If this vessel has anchors (from Hangar), detach them
-				KASAPI.tryDetachPylon(v); // Same with KAS pylons
-				KASAPI.tryDetachHarpoon(v);
-				moveUp (v);
-				// Setting up attachment procedure early
-				KASAPI.tryAttachPylon (v);
-				tryAttachAnchor (v);
-				scheduleHarpoonReattachment(v);
-
-				vesselsToMoveUp.RemoveAt (i);
+		public void FixedUpdate() {
+			if (count == 0) {
+				return;
 			}
 
 			foreach (Vessel v in FlightGlobals.VesselsLoaded) {
 				if (vessel_timer.ContainsKey (v.id) && vessel_timer[v.id] > 0) {
+
 					stabilize (v);
+
+					vessel_timer [v.id] --;
+					if (vessel_timer [v.id] == 0) {
+						count--;
+						printDebug ("Stopping stabilizing " + v.name);
+
+						if (count == 0) {
+							if (displayMessage) {
+								ScreenMessages.PostScreenMessage ("World has been stabilized");
+							}
+							onWorldStabilizedEvent.Fire ();
+						}
+					}
 				}
-				antiSlide (v);
 			}
 
-			foreach (Rigidbody rb in KASAPI.harpoonsToHold)
+			foreach (Rigidbody rb in KASAPI.harpoonsToHold) {
 				KASAPI.holdHarpoon (rb);
+			}
 		}
 
 		private void moveUp(Vessel v) {
 
-			v.ResetGroundContact();
 			v.ResetCollisionIgnores();
 
 			// TODO: Try DisableSuspension() on wheels
@@ -250,34 +274,142 @@ namespace WorldStabilizer
 			v.Translate (downMovement * -up);
 		}
 
-		private void stabilize(Vessel v) {
+		private void vesselSleep(Vessel v) {
 
-			if (vessel_timer [v.id] > stabilizationTimer - groundingTicks) // first 3(?) ticks
-			{
-				moveDown (v);
+			foreach (Part p in v.parts) {
+				if (p.Rigidbody != null)
+					p.Rigidbody.Sleep ();
+			}
+		}
+
+		private void ignoreColliders(Vessel v, Collider c) {
+		
+			foreach (Part p in v.parts) {
+				if (p.collisionEnhancer != null) {
+					ceBehaviors [p.flightID] = p.collisionEnhancer.OnTerrainPunchThrough;
+					p.collisionEnhancer.OnTerrainPunchThrough = CollisionEnhancerBehaviour.DO_NOTHING;
+				}
+				foreach (Collider c2 in p.GetComponents<Collider>()) {
+					Physics.IgnoreCollision (c, c2, true);
+				}
+				foreach (Collider c2 in p.GetComponentsInChildren<Collider>()) {
+					Physics.IgnoreCollision (c, c2, true);
+				}
+			}
+		}
+
+		private void restoreColliders(Vessel v, Collider c) {
+			foreach (Part p in v.parts) {
+				foreach (Collider c2 in p.GetComponents<Collider>()) {
+					Physics.IgnoreCollision (c, c2, false);
+				}
+				foreach (Collider c2 in p.GetComponentsInChildren<Collider>()) {
+					Physics.IgnoreCollision (c, c2, false);
+				}
+			}
+		}
+
+		private void restoreCEBehavior(Vessel v) {
+			foreach (Part p in v.parts) {
+				if (p.collisionEnhancer != null && ceBehaviors.ContainsKey (p.flightID)) {
+					p.collisionEnhancer.OnTerrainPunchThrough = ceBehaviors [p.flightID];
+				}
+			}
+		}
+
+		private void restoreInitialAltitude(Vessel v) {
+
+			// Restoring initial altitude
+			// This is to address such situations as:
+			// 1. Placing a vessel under the (static) roof. KSP restores it to be on top of the roof
+			// 2. Using of AirPark mod. AirPark sets vessel state to LANDED if it is left in atmosphere
+			// and KSP pins it to the ground on unpackling. 
+
+			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
+			double altDiff = initialAltitude[v.id] - v.altitude;
+			printDebug (v.name + ": initial alt: " + initialAltitude [v.id] + "; current alt = " + v.altitude + "; moving up by: " + altDiff);
+
+			RaycastHit upHit;
+			RaycastHit downHit;
+
+			if (Physics.Raycast (bounds[v.id].bottomPoint, -up, out downHit, v.vesselRanges.landed.unload, rayCastMask)) {
+				printDebug (v.name + ": downward hit: " + downHit + "; collider = " + downHit.collider);
+				ignoreColliders(v, downHit.collider);
+			}
+			else {
+				printDebug (v.name + ": no downward hit");
+			}
+			if (Physics.Raycast (bounds[v.id].topPoint, up, out upHit, v.vesselRanges.landed.unload, rayCastMask)) {
+				printDebug (v.name + ": upward hit: " + upHit + "; collider = " + upHit.collider);
+				ignoreColliders (v, upHit.collider);
+			}
+			else {
+				printDebug (v.name + ": no upward hit");
 			}
 
-			if (drawPoints) 
-				updateLR (v, bounds [v.id]);
+			v.Translate (up * (float)altDiff);
 
+			if (upHit.collider != null) {
+				restoreColliders (v, upHit.collider);
+			}
+
+			if (downHit.collider != null) {
+				restoreColliders (v, downHit.collider);
+			}
+		}
+
+		private void stabilize(Vessel v) {
+
+			// At the very first tick we detach what could be possibly detached and restore initial altitude.
+			// At the second and third tick we move vessel up if needed
+			// At the 4-8 ticks we move vessel down to the safe altitude
+
+			if (vesselsToMoveUp.Contains(v)) {
+
+				printDebug (v.name + ": timer = " + vessel_timer [v.id]);
+				if (vessel_timer [v.id] == stabilizationTimer) {
+					// Detaching what should be detached at the very start of stabilization
+					tryDetachAnchor (v); // If this vessel has anchors (from Hangar), detach them
+					KASAPI.tryDetachPylon (v); // Same with KAS pylons
+					KASAPI.tryDetachHarpoon (v);
+
+					restoreInitialAltitude (v);
+
+				} else {
+					
+					printDebug (v.name + ": timer = " + vessel_timer [v.id] + "; moving up");
+					moveUp (v);
+					// Setting up attachment procedure early
+					KASAPI.tryAttachPylon (v);
+					tryAttachAnchor (v);
+					scheduleHarpoonReattachment (v);
+					restoreCEBehavior (v);
+
+					vesselsToMoveUp.Remove (v);
+				}
+			}
+			else {
+
+				if (vessel_timer [v.id] > stabilizationTimer - groundingTicks) // next 3(?) ticks after detaching and moving up
+				{
+					printDebug (v.name + ": timer = " + vessel_timer [v.id] + "; moving down");
+					moveDown (v);
+				}
+			}
+		
+			if (drawPoints) {
+				updateLR (v, bounds [v.id]);
+			}
+
+			v.ResetGroundContact();
 			v.IgnoreGForces(20);
 			v.SetWorldVelocity (Vector3.zero);
 			v.angularMomentum = Vector3.zero;
 			v.angularVelocity = Vector3.zero;
+			vesselSleep (v);
 
 			if (vessel_timer [v.id] % 10 == 0) {
 				printDebug ("Stabilizing; v = " + v.name + "; radar alt = " + v.radarAltitude + "; timer = " + vessel_timer [v.id]);
-			}
-			vessel_timer [v.id]--;
-			if (vessel_timer [v.id] == 0) {
-				count--;
-				printDebug ("Stopping stabilizing " + v.name);
-
-				if (count == 0) {
-					if (displayMessage)
-						ScreenMessages.PostScreenMessage ("World has been stabilized");
-					onWorldStabilizedEvent.Fire ();
-				}
 			}
 		}
 	
@@ -302,10 +434,13 @@ namespace WorldStabilizer
 		}
 
 		private void tryDetachAnchor(Vessel v) {
-			
-			anchors [v.id] = findAnchoredParts (v);
-			foreach (PartModule pm in anchors[v.id]) {
-				invokeAction (pm, "Detach anchor");
+
+			List<PartModule> anchoredParts = findAnchoredParts (v);
+			if (anchoredParts.Count > 0) {
+				anchors [v.id] = anchoredParts;
+				foreach (PartModule pm in anchors[v.id]) {
+					invokeAction (pm, "Detach anchor");
+				}
 			}
 		}
 
@@ -553,15 +688,6 @@ namespace WorldStabilizer
 			}
 		}
 
-		void antiSlide(Vessel v) {
-
-			if (v.srfSpeed < 0.1) {
-				v.SetWorldVelocity (Vector3.zero);
-				v.angularMomentum = Vector3.zero;
-				v.angularVelocity = Vector3.zero;
-			}
-		}
-
 		public class RayCastResult
 		{
 			public Collider collider;
@@ -602,10 +728,23 @@ namespace WorldStabilizer
 					printDebug(v.name + ": in exclusion list");
 					return true;
 				}
+				if (p.Modules.Contains("AirPark") && checkParked (p)) {
+					return true;
+				}
 				// TODO: Check if there's KAS port in attached, but undocked state
 				// TODO: Check if there's KAS winch in attached, but undocked state 
 			}
 			return false;
+		}
+
+		private bool checkParked(Part p) {
+			PartModule airpark = p.Modules ["AirPark"];
+			var parked = airpark.Fields.GetValue ("Parked");
+			if (parked != null) {
+				return (bool)parked;
+			} else {
+				return false;
+			}
 		}
 			
 		internal static void printDebug(String message) {

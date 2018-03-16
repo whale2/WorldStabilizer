@@ -19,6 +19,7 @@ namespace WorldStabilizer
 			if (!part.Modules.Contains ("ModuleKISItem"))
 				return;
 			moduleKISItem = part.Modules ["ModuleKISItem"];
+			Invoke ("finalCheck", WorldStabilizer.checkLandedTimeout);
 			WorldStabilizer.printDebug ("KASReconnector: KIS Module found for part " + part.name + " (" + moduleKISItem + ")");
 		}
 

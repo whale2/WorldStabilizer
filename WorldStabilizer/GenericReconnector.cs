@@ -32,6 +32,14 @@ namespace WorldStabilizer
 			selfDestructTimer = 3;
 		}
 
+		protected void finalCheck() {
+
+			WorldStabilizer.printDebug ("KASReconnector: GroundContact = " + part.GroundContact);
+			if (part.GroundContact) {
+				reattach ();
+			}
+		}
+
 		protected abstract void reattach();
 	}
 }

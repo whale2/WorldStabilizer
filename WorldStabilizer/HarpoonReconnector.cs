@@ -16,6 +16,7 @@ namespace WorldStabilizer
 		{
 			base.OnAwake ();
 			WorldStabilizer.printDebug ("HarpoonReconnector: awaking");
+			Invoke ("finalCheck", WorldStabilizer.checkLandedTimeout);
 		}
 
 		protected override void reattach() {
