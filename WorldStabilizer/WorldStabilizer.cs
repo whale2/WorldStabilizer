@@ -46,6 +46,11 @@ namespace WorldStabilizer
 		// Max upmovement in case upward movement is required; should cancel
 		// moving the craft to space in case we messed the things up
 		public static float maxUpMovement = 2.0f;
+		// Last resort drop altitude
+		// If the mod can't reliably determine the height above obstacles, like when
+		// vessel lies on different colliders, it still will be lowered, but to this
+		// altitude
+		public static float lastResortAltitude = 2.0f;
 
 		private const int rayCastMask = (1 << 28) | (1 << 15) ;
 		private const int rayCastExtendedMask = rayCastMask | 1;
@@ -249,19 +254,24 @@ namespace WorldStabilizer
 			RayCastResult alt = GetRaycastAltitude (v, bounds[v.id].bottomPoint,  rayCastMask);
 			RayCastResult alt3 = GetRaycastAltitude(v, bounds[v.id].topPoint, rayCastMask);
 
+			Vector3 referencePoint = bounds [v.id].bottomPoint;
 			if (alt.collider != alt3.collider) {
-				printDebug (v.name + ": hit different colliders: " + alt + " and " + alt3 + "; refusing to move down");
-				return;
+				printDebug (v.name + ": hit different colliders: " + alt + " and " + alt3 + "; using lastResortAltitude as a guard point");
+				minDownMovement = lastResortAltitude;
+				if (alt3.altitude < alt.altitude) {
+					referencePoint = bounds [v.id].topPoint;
+					printDebug (v.name + ": reference point set to top");
+				}
 			}
 
 			// Re-cast raycast including parts into the mask
-			alt = GetRaycastAltitude (v, bounds[v.id].bottomPoint,  rayCastExtendedMask);
+			alt = GetRaycastAltitude (v, referencePoint,  rayCastExtendedMask);
 			printDebug (v.name + ": raycast including parts; hit collider: " + alt);
-			float downMovement = alt.altitude;
+			float downMovement = alt.altitude ;
 
 			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
 
-			if (downMovement < minDownMovement) {
+			if (downMovement < minDownMovement ) {
 				printDebug ("downmovement for " + v.name + " is below threshold; leaving as is: " + downMovement);
 				return;
 			}
@@ -700,7 +710,7 @@ namespace WorldStabilizer
 
 			public override string ToString() {
 
-				return "(alt = " + altitude + "; collider = " + (collider != null ? collider.name : "no hit)");
+				return "(alt = " + altitude + "; collider = " + (collider != null ? collider.name : "no hit") + ")";
 			}
 		}
 
