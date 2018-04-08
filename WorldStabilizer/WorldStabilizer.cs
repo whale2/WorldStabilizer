@@ -140,7 +140,7 @@ namespace WorldStabilizer
 			    (stabilizeInPrelaunch && v.situation == Vessel.Situations.PRELAUNCH)) {
 
 				printDebug ("off rails: " + v.name + ": alt: " + v.altitude + "; radar alt: " + v.radarAltitude + 
-					"; proto alt: " + v.protoVessel.altitude);
+					"; 	 alt: " + v.protoVessel.altitude);
 				if (v.isEVA && !stabilizeKerbals) { // Kerbals are usually ok
 					return;
 				}
@@ -522,8 +522,9 @@ namespace WorldStabilizer
 			Lr0.material = new Material (Shader.Find ("KSP/Emissive/Diffuse"));
 			Lr0.useWorldSpace = true;
 			Lr0.material.SetColor ("_EmissiveColor", Color.green);
-			Lr0.SetWidth (0.15f, 0.15f);
-			Lr0.SetVertexCount (4);
+			Lr0.startWidth = 0.15f;
+			Lr0.endWidth = 0.15f;
+			Lr0.positionCount = 4;
 			Lr0.enabled = true;
 
 			LineRenderer Lr1;
@@ -531,8 +532,9 @@ namespace WorldStabilizer
 			Lr1.material = new Material (Shader.Find ("KSP/Emissive/Diffuse"));
 			Lr1.useWorldSpace = true;
 			Lr1.material.SetColor ("_EmissiveColor", Color.green);
-			Lr1.SetWidth (0.15f, 0.15f);
-			Lr1.SetVertexCount (4);
+			Lr1.startWidth = 0.15f;
+			Lr1.endWidth = 0.15f;
+			Lr1.positionCount = 4;
 			Lr1.enabled = true;
 
 			renderer0 [v.id] = Lr0;
