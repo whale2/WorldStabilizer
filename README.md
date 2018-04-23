@@ -1,5 +1,5 @@
 # WorldStabilizer
-Desperate attempt to counter ground collision bug in KSP 1.3.1
+A way to counter ground collision bug in KSP 1.3.1
 
 Bug #16159: https://bugs.kerbalspaceprogram.com/issues/16159
 
