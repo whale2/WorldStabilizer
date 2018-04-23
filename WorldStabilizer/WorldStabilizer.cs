@@ -170,10 +170,12 @@ namespace WorldStabilizer
 
 		public void onVesselSwitching(Vessel from, Vessel to) {
 
-			printDebug (from.name + "(packed=" + from.packed + ") -> " + to.name + "(packed=" + to.packed + ")");
-			if (!to.packed) {
+			if (to == null || to.situation != Vessel.Situations.LANDED) { // FIXME: Do we need PRELAUNCH here?
 				return;
 			}
+
+			string fromString = from != null ? (from.name + "(packed=" + from.packed + ")") : "non-vessel";
+			printDebug (fromString + " -> " + to.name + "(packed=" + to.packed + ")");
 
 			tryDetachAnchor (to); // If this vessel has anchors (from Hangar), detach them
 			KASAPI.tryDetachPylon (to); // Same with KAS pylons
