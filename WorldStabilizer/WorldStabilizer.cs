@@ -57,7 +57,7 @@ namespace WorldStabilizer
 
 		private int stabilizationTimer;
 		private int count = 0;
-		private Dictionary<Guid, int> vessel_timer;
+		private Dictionary<Guid, int> vesselTimer;
 		private Dictionary<Guid, LineRenderer> renderer0;
 		private Dictionary<Guid, LineRenderer> renderer1;
 
@@ -97,7 +97,7 @@ namespace WorldStabilizer
 		public void Start() {
 			
 			printDebug("Start");
-			vessel_timer = new Dictionary<Guid, int> ();
+			vesselTimer = new Dictionary<Guid, int> ();
 			renderer0 = new Dictionary<Guid, LineRenderer> ();
 			renderer1 = new Dictionary<Guid, LineRenderer> ();
 			bounds = new Dictionary<Guid, VesselBounds> ();
@@ -121,8 +121,8 @@ namespace WorldStabilizer
 		}
 
 		public void onVesselGoOnRails(Vessel v) {
-			if (vessel_timer.ContainsKey (v.id) && vessel_timer [v.id] > 0) {
-				vessel_timer [v.id] = 0;
+			if (vesselTimer.ContainsKey (v.id) && vesselTimer [v.id] > 0) {
+				vesselTimer [v.id] = 0;
 				count--;
 				if (drawPoints) {
 					renderer0 [v.id].gameObject.DestroyGameObject ();
@@ -155,7 +155,7 @@ namespace WorldStabilizer
 					onWorldStabilizationStartEvent.Fire ();
 				}
 
-				vessel_timer [v.id] = stabilizationTimer;
+				vesselTimer [v.id] = stabilizationTimer;
 				bounds [v.id] = new VesselBounds (v);
 				if (drawPoints) {
 					initLR (v, bounds [v.id]);
@@ -188,12 +188,12 @@ namespace WorldStabilizer
 			}
 
 			foreach (Vessel v in FlightGlobals.VesselsLoaded) {
-				if (vessel_timer.ContainsKey (v.id) && vessel_timer[v.id] > 0) {
+				if (vesselTimer.ContainsKey (v.id) && vesselTimer[v.id] > 0) {
 
 					stabilize (v);
 
-					vessel_timer [v.id] --;
-					if (vessel_timer [v.id] == 0) {
+					vesselTimer [v.id] --;
+					if (vesselTimer [v.id] == 0) {
 						count--;
 						printDebug ("Stopping stabilizing " + v.name);
 
@@ -229,7 +229,7 @@ namespace WorldStabilizer
 				RayCastResult alt2 = GetRaycastAltitude (v, bounds [v.id].topPoint, rayCastMask); // mask: ground only
 
 				printDebug (v.name + ": alt from top - height = " + (alt.altitude - vesselHeight) + 
-					"; alt from top: " + alt + "; vessel height = " + vesselHeight);
+					"; alt from top: " + alt + "; vessel height = " + vesselHeight + "; minDownMovement = " + minDownMovement);
 				if (alt.altitude - vesselHeight < minDownMovement) {
 
 					printDebug (v.name + ": hit colliders: " + alt + " and " + alt2);
@@ -274,14 +274,15 @@ namespace WorldStabilizer
 			Vector3 up = (v.transform.position - FlightGlobals.currentMainBody.transform.position).normalized;
 
 			if (downMovement < minDownMovement ) {
-				printDebug ("downmovement for " + v.name + " is below threshold; leaving as is: " + downMovement);
+				printDebug ("downmovement for " + v.name + " is below threshold (" + downMovement + "<" + 
+				            minDownMovement + "); leaving as is: " + downMovement);
 				return;
 			}
 
 			downMovement -= minDownMovement;
 
 			printDebug ("Moving down: " + v.name + " by " + downMovement + "; alt = " + 
-				alt.altitude + "; timer = " + vessel_timer[v.id] + "; radar alt = " + v.radarAltitude +
+				alt.altitude + "; timer = " + vesselTimer[v.id] + "; radar alt = " + v.radarAltitude +
 				"; alt from top = " + alt3.altitude);
 			v.Translate (downMovement * -up);
 		}
@@ -378,8 +379,8 @@ namespace WorldStabilizer
 
 			if (vesselsToMoveUp.Contains(v)) {
 
-				printDebug (v.name + ": timer = " + vessel_timer [v.id]);
-				if (vessel_timer [v.id] == stabilizationTimer) {
+				printDebug (v.name + ": timer = " + vesselTimer [v.id]);
+				if (vesselTimer [v.id] == stabilizationTimer) {
 					// Detaching what should be detached at the very start of stabilization
 					tryDetachAnchor (v); // If this vessel has anchors (from Hangar), detach them
 					KASAPI.tryDetachPylon (v); // Same with KAS pylons
@@ -389,7 +390,7 @@ namespace WorldStabilizer
 
 				} else {
 					
-					printDebug (v.name + ": timer = " + vessel_timer [v.id] + "; moving up");
+					printDebug (v.name + ": timer = " + vesselTimer [v.id] + "; moving up");
 					moveUp (v);
 					// Setting up attachment procedure early
 					KASAPI.tryAttachPylon (v);
@@ -402,9 +403,9 @@ namespace WorldStabilizer
 			}
 			else {
 
-				if (vessel_timer [v.id] > stabilizationTimer - groundingTicks) // next 3(?) ticks after detaching and moving up
+				if (vesselTimer [v.id] > stabilizationTimer - groundingTicks) // next 3(?) ticks after detaching and moving up
 				{
-					printDebug (v.name + ": timer = " + vessel_timer [v.id] + "; moving down");
+					printDebug (v.name + ": timer = " + vesselTimer [v.id] + "; moving down");
 					moveDown (v);
 				}
 			}
@@ -420,8 +421,8 @@ namespace WorldStabilizer
 			v.angularVelocity = Vector3.zero;
 			vesselSleep (v);
 
-			if (vessel_timer [v.id] % 10 == 0) {
-				printDebug ("Stabilizing; v = " + v.name + "; radar alt = " + v.radarAltitude + "; timer = " + vessel_timer [v.id]);
+			if (vesselTimer [v.id] % 10 == 0) {
+				printDebug ("Stabilizing; v = " + v.name + "; radar alt = " + v.radarAltitude + "; timer = " + vesselTimer [v.id]);
 			}
 		}
 	
@@ -504,7 +505,8 @@ namespace WorldStabilizer
 		internal static void invokeAction(PartModule pm, string actionName) {
 			printDebug ("Invoking action " + actionName + " on part " + pm.part.name);
 			// https://forum.kerbalspaceprogram.com/index.php?/topic/65106-trigger-a-parts-action-from-code/
-			BaseActionList bal = new BaseActionList(pm.part, pm); //create a BaseActionList bal with the available actions on the part. p being our current part, pm being our current partmodule
+			BaseActionList bal = new BaseActionList(pm.part, pm); //create a BaseActionList bal with the available actions on the part.
+																  //p being our current part, pm being our current partmodule
 			if (bal.Count == 0)
 				return;
 			foreach (BaseAction ba in bal) //start cycling through baseActions in the BaseActionList
