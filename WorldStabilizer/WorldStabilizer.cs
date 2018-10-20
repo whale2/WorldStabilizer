@@ -284,7 +284,7 @@ namespace WorldStabilizer
 			printDebug ("Moving down: " + v.name + " by " + downMovement + "; alt = " + 
 				alt.altitude + "; timer = " + vesselTimer[v.id] + "; radar alt = " + v.radarAltitude +
 				"; alt from top = " + alt3.altitude);
-			v.Translate (downMovement * -up);
+			v.Translate (-downMovement * (Vector3d)up);
 		}
 
 		private void vesselSleep(Vessel v) {
@@ -526,9 +526,9 @@ namespace WorldStabilizer
 			Lr0.material = new Material (Shader.Find ("KSP/Emissive/Diffuse"));
 			Lr0.useWorldSpace = true;
 			Lr0.material.SetColor ("_EmissiveColor", Color.green);
-			Lr0.startWidth = 0.15f;
+			/*Lr0.startWidth = 0.15f;
 			Lr0.endWidth = 0.15f;
-			Lr0.positionCount = 4;
+			Lr0.positionCount = 4;*/
 			Lr0.enabled = true;
 
 			LineRenderer Lr1;
@@ -536,9 +536,9 @@ namespace WorldStabilizer
 			Lr1.material = new Material (Shader.Find ("KSP/Emissive/Diffuse"));
 			Lr1.useWorldSpace = true;
 			Lr1.material.SetColor ("_EmissiveColor", Color.green);
-			Lr1.startWidth = 0.15f;
+			/*Lr1.startWidth = 0.15f;
 			Lr1.endWidth = 0.15f;
-			Lr1.positionCount = 4;
+			Lr1.positionCount = 4;*/
 			Lr1.enabled = true;
 
 			renderer0 [v.id] = Lr0;
