@@ -151,6 +151,17 @@ namespace WorldStabilizer
 					return;
 				}
 
+				// missionTime seems to be not very reliable - doesn't work if the vessel wasn't touched after launch
+				printDebug($"mission time: {v.missionTime}");
+				if (v.missionTime < 3)
+				{
+					printDebug("checking if we're inside the hangar");
+					if (checkIfInsideHangar(v))
+					{
+						return;
+					}
+				}
+
 				if (count == 0) {
 					onWorldStabilizationStartEvent.Fire ();
 				}
@@ -352,12 +363,20 @@ namespace WorldStabilizer
 			else {
 				printDebug (v.name + ": no downward hit");
 			}
-			if (Physics.Raycast (bounds[v.id].topPoint, up, out upHit, v.vesselRanges.landed.unload, rayCastMask)) {
+			
+			if (Physics.Raycast (bounds[v.id].topPoint, up, out upHit, v.vesselRanges.landed.unload, rayCastExtendedMask)) {
 				printDebug (v.name + ": upward hit: " + upHit + "; collider = " + upHit.collider);
 				ignoreColliders (v, upHit.collider);
+				printDebug($"uphit distance: {upHit.distance}");
+				if (upHit.distance > 0.2)
+				{
+					// FIXME: Account for suspension travel at last?
+					altDiff = 0.2;
+				}
 			}
 			else {
-				printDebug (v.name + ": no upward hit");
+				printDebug (v.name + ": no upward hit; moving up by 0.2 m just in case");
+				altDiff = 0.2;
 			}
 
 			v.Translate (up * (float)altDiff);
@@ -761,6 +780,57 @@ namespace WorldStabilizer
 			} else {
 				return false;
 			}
+		}
+		
+		// Find out if we're inside hangar
+		private bool checkIfInsideHangar(Vessel v)
+		{
+			// RaycastAll to 6 directions, if two or more hit the same part and this part has 
+			// "Hangar" module, we're inside the hangar
+			Vector3[] directions =
+				{Vector3.up, Vector3.down, Vector3.left, Vector3.right, Vector3.back, Vector3.forward};
+
+			int surrounding = 0;
+			foreach (Vector3 vec in directions)
+			{
+				Part p = getClosestForeignPart(v, vec);
+				if (!p.Modules.Contains("Hangar"))
+				{
+					continue;
+				}
+				surrounding ++;
+			}
+
+			if (surrounding < 2)
+			{
+				printDebug("doesn't look like we're inside the hangar");
+				return false;
+			}
+			
+			printDebug($"surrounded by hangar from {surrounding} directions");
+			return true;
+		}
+
+		private Part getClosestForeignPart(Vessel v, Vector3 direction)
+		{
+			float distance = 1000f;
+			Part closest = null;
+			foreach (RaycastHit hit in Physics.RaycastAll(v.CoM, direction, 1000, 1))
+			{
+				Part p = hit.collider.gameObject.GetComponentInParent<Part>();
+				if (p.vessel == v)
+				{
+					continue;
+				}
+
+				if (hit.distance < distance)
+				{
+					distance = hit.distance;
+					closest = p;
+				}
+			}
+			printDebug($"closest part for direction {direction}: {closest}, distance: {distance}");
+			return closest;
 		}
 			
 		internal static void printDebug(String message) {
