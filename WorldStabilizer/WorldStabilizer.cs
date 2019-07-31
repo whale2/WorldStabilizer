@@ -794,7 +794,7 @@ namespace WorldStabilizer
 			foreach (Vector3 vec in directions)
 			{
 				Part p = getClosestForeignPart(v, vec);
-				if (!p.Modules.Contains("Hangar"))
+				if (p == null || !p.Modules.Contains("Hangar"))
 				{
 					continue;
 				}
