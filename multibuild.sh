@@ -3,7 +3,7 @@
 PROJECT="WorldStabilizer"
 KSP_BASE="${HOME}/ksp-versions"
 
-TARGETS="1.3.1 1.5.1 1.6.1 1.7.1"
+TARGETS="1.3.1 1.5.1 1.6.1 1.7.3"
 
 PROJECT_VERSION=$(cat GameData/${PROJECT}/$PROJECT.version|jq '.VERSION.MAJOR,.VERSION.MINOR,.VERSION.PATCH'|tr '\n' '.'|sed -e s'/\.$//')
 
@@ -47,7 +47,8 @@ for t in ${TARGETS}; do
     mv tmp.version GameData/${PROJECT}/$PROJECT.version
 
     # Build package
-    zip -r ${PACKAGE} GameData -x \*~\*
+    rm ${PACKAGE}
+    zip -r ${PACKAGE} WorldStabilizer-LICENSE GameData -x \*~\*
     mv ${PACKAGE} ${SOURCE_DIR}
     cd ${SOURCE_DIR}
     rm -rf ${TMPDIR}
