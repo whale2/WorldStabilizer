@@ -91,7 +91,7 @@ namespace WorldStabilizer
 			excludeVessels = new List<string>();
 			configure ();
 
-			KASAPI.initialize ();
+			//KASAPI.initialize ();
 		}
 
 		public void Start() {
@@ -130,7 +130,7 @@ namespace WorldStabilizer
 				}
 			}
 			// tryDetachAnchor (v); // If this vessel has anchors (from Hangar), detach them
-			KASAPI.tryDetachPylon (v); // Same with KAS pylons
+			// KASAPI.tryDetachPylon (v); // Same with KAS pylons
 			// KASAPI.tryDetachHarpoon (v);
 		}
 			
@@ -189,8 +189,8 @@ namespace WorldStabilizer
 			printDebug (fromString + " -> " + to.name + "(packed=" + to.packed + ")");
 
 			tryDetachAnchor (to); // If this vessel has anchors (from Hangar), detach them
-			KASAPI.tryDetachPylon (to); // Same with KAS pylons
-			KASAPI.tryDetachHarpoon (to);
+			// KASAPI.tryDetachPylon (to); // Same with KAS pylons
+			// KASAPI.tryDetachHarpoon (to);
 		}
 
 		public void FixedUpdate() {
@@ -218,9 +218,10 @@ namespace WorldStabilizer
 				}
 			}
 
-			foreach (Rigidbody rb in KASAPI.harpoonsToHold) {
-				KASAPI.holdHarpoon (rb);
-			}
+//			KAS Harpoons are out of order in KAS 1.0
+//			foreach (Rigidbody rb in KASAPI.harpoonsToHold) {
+//				KASAPI.holdHarpoon (rb);
+//			}
 		}
 
 		private void moveUp(Vessel v) {
@@ -268,9 +269,15 @@ namespace WorldStabilizer
 			RayCastResult alt3 = GetRaycastAltitude(v, bounds[v.id].topPoint, rayCastMask);
 
 			Vector3 referencePoint = bounds [v.id].bottomPoint;
+			// So what's wrong if we hit different colliders?
+			// We can even hit the same collider, but it will have a non-flat mesh in that point
+			// 
+			// Seems like the right way would be raycasting from every downward facing point
+			// or from middle of every downward facing triangle
+			
 			if (alt.collider != alt3.collider) {
-				printDebug (v.name + ": hit different colliders: " + alt + " and " + alt3 + "; using lastResortAltitude as a guard point");
-				minDownMovement = lastResortAltitude;
+				printDebug (v.name + ": hit different colliders: " + alt + " and " + alt3 ); //; using lastResortAltitude as a guard point");
+				//minDownMovement = lastResortAltitude;
 				if (alt3.altitude < alt.altitude) {
 					referencePoint = bounds [v.id].topPoint;
 					printDebug (v.name + ": reference point set to top");
@@ -402,8 +409,8 @@ namespace WorldStabilizer
 				if (vesselTimer [v.id] == stabilizationTimer) {
 					// Detaching what should be detached at the very start of stabilization
 					tryDetachAnchor (v); // If this vessel has anchors (from Hangar), detach them
-					KASAPI.tryDetachPylon (v); // Same with KAS pylons
-					KASAPI.tryDetachHarpoon (v);
+					// KASAPI.tryDetachPylon (v); // Same with KAS pylons
+					// KASAPI.tryDetachHarpoon (v);
 
 					restoreInitialAltitude (v);
 
@@ -412,7 +419,7 @@ namespace WorldStabilizer
 					printDebug (v.name + ": timer = " + vesselTimer [v.id] + "; moving up");
 					moveUp (v);
 					// Setting up attachment procedure early
-					KASAPI.tryAttachPylon (v);
+					// KASAPI.tryAttachPylon (v);
 					tryAttachAnchor (v);
 					scheduleHarpoonReattachment (v);
 					restoreCEBehavior (v);
