@@ -764,6 +764,8 @@ namespace WorldStabilizer
 			foreach (Part p in v.parts) {
 				if (p.Modules.Contains ("LaunchClamp"))
 					return true;
+				if (p.Modules.Contains ("ModuleRestockLaunchClamp"))
+					return true;
 				if (p.Modules.Contains ("FlagSite"))
 					return true;
 				if (excludeVessels.Contains(v.GetName())) {
