@@ -69,6 +69,8 @@ namespace WorldStabilizer
 		private List<Vessel> vesselsToMoveUp;
 
 		private List<string> excludeVessels;
+		private List<string> excludePartModules;
+		private List<string> excludeParts;
 
 
 		public static EventVoid onWorldStabilizationStartEvent;
@@ -89,6 +91,8 @@ namespace WorldStabilizer
 			instance = this;
 
 			excludeVessels = new List<string>();
+			excludeParts = new List<string>();
+			excludePartModules = new List<string>();
 			configure ();
 
 			//KASAPI.initialize ();
@@ -762,12 +766,19 @@ namespace WorldStabilizer
 
 		private bool checkExcludes(Vessel v) {
 			foreach (Part p in v.parts) {
-				if (p.Modules.Contains ("LaunchClamp"))
-					return true;
-				if (p.Modules.Contains ("FlagSite"))
-					return true;
 				if (excludeVessels.Contains(v.GetName())) {
-					printDebug(v.name + ": in exclusion list");
+					printDebug($"Vessel {v.name} is in exclusion list");
+					return true;
+				}
+				if (excludeParts.Contains(p.name))
+				{
+					printDebug($"Part {p.name} is in exclusion list");
+					return true;
+				}
+				if (
+					p.Modules.GetModules<PartModule>().Select(m => excludePartModules.Contains(m.name)).Any())
+				{
+					printDebug($"Part {p.name} contains PartModule from exclusion list");
 					return true;
 				}
 				if (p.Modules.Contains("AirPark") && checkParked (p)) {
@@ -916,6 +927,16 @@ namespace WorldStabilizer
 			if (nodeValue != null) {
 				foreach(string exc in nodeValue.Split (','))
 					excludeVessels.Add(exc.Trim());
+			}
+			nodeValue = config.GetValue ("excludeParts");
+			if (nodeValue != null) {
+				foreach(string exc in nodeValue.Split (','))
+					excludeParts.Add(exc.Trim());
+			}
+			nodeValue = config.GetValue ("excludePartModules");
+			if (nodeValue != null) {
+				foreach(string exc in nodeValue.Split (','))
+					excludePartModules.Add(exc.Trim());
 			}
 		}
 	}
