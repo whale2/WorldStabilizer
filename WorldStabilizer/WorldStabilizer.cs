@@ -3,8 +3,6 @@ using UnityEngine;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
-using ModuleWheels;
-using System.Reflection;
 using System.Collections;
 
 namespace WorldStabilizer
@@ -231,6 +229,7 @@ namespace WorldStabilizer
 		private void moveUp(Vessel v) {
 
 			v.ResetCollisionIgnores();
+			v.ResetGroundContact();
 
 			// TODO: Try DisableSuspension() on wheels
 
@@ -444,8 +443,7 @@ namespace WorldStabilizer
 				updateLR (v, bounds [v.id]);
 			}
 
-			v.ResetGroundContact();
-			v.IgnoreGForces(20);
+			v.IgnoreGForces(2);
 			v.SetWorldVelocity (Vector3.zero);
 			v.angularMomentum = Vector3.zero;
 			v.angularVelocity = Vector3.zero;
@@ -776,9 +774,13 @@ namespace WorldStabilizer
 					return true;
 				}
 				if (
-					p.Modules.GetModules<PartModule>().Select(m => excludePartModules.Contains(m.name)).Any())
+					p.Modules.GetModules<PartModule>().Any(m => excludePartModules.Contains(m.moduleName)))
 				{
 					printDebug($"Part {p.name} contains PartModule from exclusion list");
+					foreach (PartModule mod in p.Modules.GetModules<PartModule>().Where(m => excludePartModules.Contains(m.moduleName)))
+					{
+						printDebug($"Excluded Module: {mod.moduleName}");
+					}
 					return true;
 				}
 				if (p.Modules.Contains("AirPark") && checkParked (p)) {
